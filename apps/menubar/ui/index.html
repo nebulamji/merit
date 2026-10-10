@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Merit</title>
+<style>
+  :root { --bg:#faf9f7; --fg:#141414; --muted:#6b6b6b; --line:#e4e1dc; --ok:#1d7a46; --pend:#9a6b00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141414; --fg:#f2f0ec; --muted:#9a9a9a; --line:#2c2c2c; --ok:#4cc38a; --pend:#e0b04a; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, "Helvetica Neue", sans-serif; }
+  header { padding:20px 24px 8px; } h1 { font-size:20px; margin:0; } .sub { color:var(--muted); font-size:13px; }
+  main { padding:8px 24px 24px; }
+  .card { border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:10px 0; }
+  .row { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .k { color:var(--muted); font-size:12px; } .v { font-variant-numeric: tabular-nums; }
+  .ok { color:var(--ok); } .pend { color:var(--pend); }
+  code { font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Merit</h1>
+  <div class="sub">Evidence of how you work. Key classes and timing only, never what you typed. Signed with your key, anchored to Bitcoin.</div>
+</header>
+<main id="list"><p class="sub">Loading sessions…</p></main>
+<script>
+const { invoke } = window.__TAURI__.core;
+const pct = (x) => Math.round(x * 100) + '%';
+const mins = (ms) => Math.round(ms / 60000);
+async function load() {
+  const sessions = await invoke('list_sessions');
+  const el = document.getElementById('list');
+  if (!sessions.length) { el.innerHTML = '<p class="sub">No sessions yet. Use the menu-bar icon: Start session.</p>'; return; }
+  el.innerHTML = sessions.map((s) => {
+    if (!s.cert) return `<div class="card"><div class="row"><b>${s.file}</b><span class="pend">not certified</span></div></div>`;
+    const m = s.cert.metrics;
+    return `<div class="card">
+      <div class="row"><b>${s.cert.id}</b><span class="${s.anchored ? 'ok' : 'pend'}">${s.anchored ? 'anchor submitted' : 'not anchored'}</span></div>
+      <div class="row">
+        <div><div class="k">active</div><div class="v">${mins(m.active_ms)} min</div></div>
+        <div><div class="k">typed</div><div class="v">${m.chars_typed}</div></div>
+        <div><div class="k">corrections</div><div class="v">${m.corrections.deletions}</div></div>
+        <div><div class="k">revisions</div><div class="v">${m.revisions}</div></div>
+        <div><div class="k">pastes</div><div class="v">${m.paste_events}</div></div>
+        <div><div class="k">forgiveness</div><div class="v">${pct(m.forgiveness)}</div></div>
+      </div>
+      <div class="k">${s.cert.created_utc} · signed by <code>${s.cert.author.public_key.slice(0, 16)}…</code></div>
+    </div>`;
+  }).join('');
+}
+load(); setInterval(load, 5000);
+</script>
+</body>
+</html>

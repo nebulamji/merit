@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Merit",
+  "version": "0.1.0",
+  "identifier": "dev.merit.harness",
+  "build": { "frontendDist": "../ui" },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": true,
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.png"],
+    "macOS": { "minimumSystemVersion": "11.0" }
+  }
+}
