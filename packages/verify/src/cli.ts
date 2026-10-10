@@ -16,6 +16,23 @@ import { deriveKeyMetrics } from '@merit/capture';
 import type { KeyEvent } from '@merit/spec';
 
 const HOME = join(homedir(), '.merit');
+
+const KEY_CLASSES = new Set(['char', 'upper', 'digit', 'punct', 'space', 'enter', 'back', 'del', 'paste', 'nav', 'select', 'undo', 'cmd']);
+const KEY_FIELDS = new Set(['seq', 't', 'k', 'n', 'app']);
+
+/** Device sessions may contain only key types and timing. Anything else is refused. */
+export function privacyLint(keys: unknown[]): string[] {
+  const out: string[] = [];
+  keys.forEach((e, i) => {
+    if (!e || typeof e !== 'object') { out.push(`event ${i}: not an object`); return; }
+    for (const f of Object.keys(e)) if (!KEY_FIELDS.has(f)) out.push(`event ${i}: unexpected field "${f}"`);
+    const ev = e as Record<string, unknown>;
+    if (!KEY_CLASSES.has(String(ev.k))) out.push(`event ${i}: unknown key type "${String(ev.k).slice(0, 12)}"`);
+    if (ev.n !== undefined && typeof ev.n !== 'number') out.push(`event ${i}: paste length must be a number`);
+    if (ev.app !== undefined && (typeof ev.app !== 'string' || ev.app.length > 64)) out.push(`event ${i}: bad app label`);
+  });
+  return out;
+}
 const KEYFILE = join(HOME, 'key.json');
 
 /** Self-custody: the key is created on this device and never leaves it. */
@@ -57,6 +74,11 @@ async function main() {
   }
   if (cmd === 'certify') {
     const keys: KeyEvent[] = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const problems = privacyLint(keys);
+    if (problems.length) {
+      console.error('merit: refusing to sign. This session contains more than key types:\n  ' + problems.slice(0, 5).join('\n  '));
+      process.exit(3);
+    }
     const k = loadOrCreateKey();
     const secret = newSessionSecret();
     const textPath = flag('--text');
@@ -92,4 +114,4 @@ async function main() {
   }
   console.log('unknown command'); process.exit(2);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+if (process.argv[1] && /merit-cli|cli\.ts$/.test(process.argv[1])) main().catch((e) => { console.error(e); process.exit(1); });

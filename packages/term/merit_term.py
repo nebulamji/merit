@@ -15,6 +15,7 @@ import json
 import os
 import pty
 import sys
+import termios
 import time
 from datetime import datetime, timezone
 
@@ -122,9 +123,27 @@ def rec(argv):
     t0 = time.monotonic()
     seq = 0
 
+    master = {"fd": None}
+
+    def on_output(fd):
+        master["fd"] = fd
+        return os.read(fd, 1024)
+
+    def echo_off():
+        # When a program hides typing (password prompts turn ECHO off), record nothing.
+        fd = master["fd"]
+        if fd is None:
+            return False
+        try:
+            return not (termios.tcgetattr(fd)[3] & termios.ECHO)
+        except termios.error:
+            return False
+
     def on_input(fd):
         nonlocal seq
         data = os.read(fd, 4096)
+        if echo_off():
+            return data
         t = int((time.monotonic() - t0) * 1000)
         for cls, n in classify_chunk(data):
             ev = {"seq": seq, "t": t, "k": cls, "app": f"term:{label}"}
@@ -137,7 +156,7 @@ def rec(argv):
 
     sys.stderr.write(f"merit: recording key classes (no characters) for '{label}' -> {path}\n")
     try:
-        status = pty.spawn(argv, stdin_read=on_input)
+        status = pty.spawn(argv, master_read=on_output, stdin_read=on_input)
     finally:
         f.close()
         sys.stderr.write(f"merit: session saved ({seq} key events). Certify with: merit certify {path}\n")

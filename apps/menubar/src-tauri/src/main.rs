@@ -91,6 +91,22 @@ fn classify(key: Key, m: &Mods) -> Option<&'static str> {
     })
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "Carbon", kind = "framework")]
+extern "C" {
+    fn IsSecureEventInputEnabled() -> u8;
+}
+
+/// True while a password field (or any app) has enabled macOS Secure Event Input.
+fn secure_input_active() -> bool {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        return IsSecureEventInputEnabled() != 0;
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
 fn start_listener(state: Shared) {
     std::thread::spawn(move || {
         let cb = move |ev: rdev::Event| {
@@ -103,14 +119,14 @@ fn start_listener(state: Shared) {
                         Key::ControlLeft | Key::ControlRight => st.mods.ctrl = true,
                         _ => {}
                     }
+                    // Never measure while macOS is in Secure Event Input (password fields).
+                    if secure_input_active() {
+                        return;
+                    }
                     let class = classify(k, &st.mods);
-                    let paste_len = if class == Some("paste") {
-                        arboard::Clipboard::new().ok().and_then(|mut c| c.get_text().ok()).map(|s| s.chars().count())
-                    } else {
-                        None
-                    };
                     if let (Some(class), Some(s)) = (class, st.session.as_mut()) {
-                        let e = KeyEvent { seq: s.seq, t: s.started.elapsed().as_millis() as u64, k: class, n: paste_len };
+                        // We never read the clipboard: a paste is counted, its contents and length are not read.
+                        let e = KeyEvent { seq: s.seq, t: s.started.elapsed().as_millis() as u64, k: class, n: None };
                         s.seq += 1;
                         let _ = writeln!(s.file, "{}", serde_json::to_string(&e).unwrap());
                     }
