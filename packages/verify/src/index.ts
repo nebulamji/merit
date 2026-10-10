@@ -5,6 +5,13 @@ import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 import { canonicalJSON, sha256Hex, attestationId, type MeritAttestation } from '@merit/spec';
 import { verifySignature, bodyOf, verifyDisclosure, type Disclosure } from '@merit/attest';
 
+/** The OTS library logs progress to stdout; keep our output clean (CLI prints JSON). */
+async function quiet<T>(fn: () => Promise<T>): Promise<T> {
+  const log = console.log;
+  console.log = () => {};
+  try { return await fn(); } finally { console.log = log; }
+}
+
 /** The digest that gets anchored: sha256 of the full signed certificate, canonical form. */
 export function anchorDigest(cert: MeritAttestation): Uint8Array {
   return sha256(utf8ToBytes(canonicalJSON(cert)));
@@ -13,14 +20,14 @@ export function anchorDigest(cert: MeritAttestation): Uint8Array {
 /** Submit the certificate's digest to the public OpenTimestamps calendars. Returns .ots bytes (pending). */
 export async function stamp(cert: MeritAttestation): Promise<Uint8Array> {
   const d = OT.DetachedTimestampFile.fromHash(new OT.Ops.OpSHA256(), Array.from(anchorDigest(cert)));
-  await OT.stamp(d);
+  await quiet(() => OT.stamp(d));
   return Uint8Array.from(d.serializeToBytes());
 }
 
 /** Ask the calendars whether the pending stamp has been committed to a Bitcoin block yet. */
 export async function upgrade(ots: Uint8Array): Promise<{ ots: Uint8Array; changed: boolean }> {
   const d = OT.DetachedTimestampFile.deserialize(Array.from(ots));
-  const changed: boolean = await OT.upgrade(d);
+  const changed: boolean = await quiet(() => OT.upgrade(d));
   return { ots: Uint8Array.from(d.serializeToBytes()), changed };
 }
 
@@ -36,7 +43,7 @@ export async function checkAnchor(cert: MeritAttestation, ots: Uint8Array, timeo
     const dots = OT.DetachedTimestampFile.deserialize(Array.from(ots));
     if (bytesToHex(Uint8Array.from(dots.fileDigest())) !== bytesToHex(anchorDigest(cert))) return { status: 'mismatch' };
     const det = OT.DetachedTimestampFile.fromHash(new OT.Ops.OpSHA256(), Array.from(anchorDigest(cert)));
-    const r = await OT.verify(dots, det, { ignoreBitcoinNode: true, timeout: timeoutMs });
+    const r: any = await quiet<any>(() => OT.verify(dots, det, { ignoreBitcoinNode: true, timeout: timeoutMs }));
     if (r && r.bitcoin) return { status: 'bitcoin', height: r.bitcoin.height, time_utc: new Date(r.bitcoin.timestamp * 1000).toISOString() };
     return { status: 'pending' };
   } catch (e) {

@@ -1,9 +1,12 @@
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes, utf8ToBytes, concatBytes, randomBytes } from '@noble/hashes/utils';
+/** Any sequenced event: content edits (MeritEvent) or key classes (KeyEvent). */
+export type SeqEvent = { seq: number };
+
 import {
   SCHEMA, canonicalJSON, sha256Hex, attestationId, signingPayload,
-  type AttestationBody, type MeritAttestation, type MeritEvent, type Metrics,
+  type AttestationBody, type MeritAttestation, type Metrics,
 } from '@merit/spec';
 
 /* ---------------- keys: self-custody, generated on the device ---------------- */
@@ -29,7 +32,7 @@ export function eventSalt(sessionSecret: string, seq: number): string {
   return bytesToHex(sha256(concatBytes(hexToBytes(sessionSecret), utf8ToBytes(':' + seq))));
 }
 
-export function leafHash(event: MeritEvent, salt: string): Uint8Array {
+export function leafHash(event: SeqEvent, salt: string): Uint8Array {
   return sha256(concatBytes(LEAF, hexToBytes(salt), utf8ToBytes(canonicalJSON(event))));
 }
 
@@ -48,7 +51,7 @@ function levels(leaves: Uint8Array[]): Uint8Array[][] {
   return out;
 }
 
-export function merkleRoot(events: MeritEvent[], sessionSecret: string): string {
+export function merkleRoot(events: SeqEvent[], sessionSecret: string): string {
   const lv = levels(events.map((e) => leafHash(e, eventSalt(sessionSecret, e.seq))));
   return bytesToHex(lv[lv.length - 1][0]);
 }
@@ -56,15 +59,15 @@ export function merkleRoot(events: MeritEvent[], sessionSecret: string): string 
 export interface ProofStep { side: 'L' | 'R'; hash: string }
 
 /** Everything needed to show one edit belongs to a certificate, and nothing else. */
-export interface Disclosure {
-  event: MeritEvent;
+export interface Disclosure<E extends SeqEvent = SeqEvent> {
+  event: E;
   salt: string;
   index: number;
   proof: ProofStep[];
   events_root: string;
 }
 
-export function disclose(events: MeritEvent[], sessionSecret: string, index: number): Disclosure {
+export function disclose<E extends SeqEvent>(events: E[], sessionSecret: string, index: number): Disclosure<E> {
   const leaves = events.map((e) => leafHash(e, eventSalt(sessionSecret, e.seq)));
   const lv = levels(leaves);
   const proof: ProofStep[] = [];
@@ -84,7 +87,7 @@ export function disclose(events: MeritEvent[], sessionSecret: string, index: num
   };
 }
 
-export function verifyDisclosure(d: Disclosure): boolean {
+export function verifyDisclosure<E extends SeqEvent>(d: Disclosure<E>): boolean {
   let h = leafHash(d.event, d.salt);
   for (const s of d.proof) h = s.side === 'R' ? node(h, hexToBytes(s.hash)) : node(hexToBytes(s.hash), h);
   return bytesToHex(h) === d.events_root;
@@ -97,7 +100,7 @@ export function newSessionSecret(): string {
 }
 
 export function buildAttestation(args: {
-  events: MeritEvent[];
+  events: SeqEvent[];
   finalText: string;
   metrics: Metrics;
   sessionSecret: string;

@@ -54,6 +54,30 @@ export interface Metrics {
   final_chars: number;
   /** share of the final document's characters that were typed in-session (0..1) */
   typed_share: number;
+  /**
+   * Forgiveness (0..1): share of correction runs after which composition resumed within 5 s,
+   * i.e. the slip was absorbed rather than abandoned. Thesis-010's boundary score.
+   */
+  forgiveness: number;
+  /** what the metrics were derived from */
+  source: 'content' | 'keys';
+}
+
+/**
+ * Device-level key event: the class of key and its timing, never the character.
+ * Used by the terminal recorder and the menu-bar app.
+ */
+export type KeyClass = 'char' | 'space' | 'enter' | 'back' | 'del' | 'paste' | 'nav' | 'select' | 'undo' | 'cmd';
+
+export interface KeyEvent {
+  seq: number;
+  /** ms since session start */
+  t: number;
+  k: KeyClass;
+  /** for paste: number of characters pasted, if known */
+  n?: number;
+  /** optional app/context label, e.g. "Terminal:claude" */
+  app?: string;
 }
 
 export interface AttestationBody {

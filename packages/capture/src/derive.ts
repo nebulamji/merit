@@ -1,8 +1,9 @@
-import type { MeritEvent, Metrics } from '@merit/spec';
+import type { KeyEvent, MeritEvent, Metrics } from '@merit/spec';
 
 const BURST_GAP_MS = 1000;
 const ACTIVE_GAP_MS = 5000;
 const PAUSE_MS = 2000;
+const RECOVER_MS = 5000;
 
 /** Character provenance in the replayed buffer: typed in-session or pasted. */
 type Prov = 't' | 'p';
@@ -52,8 +53,11 @@ export function deriveMetrics(events: MeritEvent[], initial = ''): Metrics {
   let bursts = 0, pauses_over_2s = 0, longest_pause_ms = 0, active_ms = 0;
 
   let runRemoved = '';
-  const closeRun = () => {
+  let runs = 0, absorbed = 0, lastDelT = 0;
+  const closeRun = (nextT?: number, resumed = false) => {
     if (!runRemoved) return;
+    runs++;
+    if (resumed && nextT !== undefined && nextT - lastDelT <= RECOVER_MS) absorbed++;
     const c = classifyRemoval(runRemoved);
     if (c === 'typo') typo_fixes++; else if (c === 'word') word_changes++; else restructures++;
     runRemoved = '';
@@ -75,10 +79,11 @@ export function deriveMetrics(events: MeritEvent[], initial = ''): Metrics {
       deletions++;
       // backspace runs remove right-to-left; keep reading order
       runRemoved = e.kind === 'delete_back' ? (e.removed ?? '') + runRemoved : runRemoved + (e.removed ?? '');
+      lastDelT = e.t;
       inBurst = false;
       continue;
     }
-    closeRun();
+    closeRun(e.t, e.kind === 'insert' || e.kind === 'replace');
 
     const insLen = e.inserted ? Array.from(e.inserted).length : 0;
     if (e.kind === 'paste') {
@@ -116,6 +121,87 @@ export function deriveMetrics(events: MeritEvent[], initial = ''): Metrics {
     longest_pause_ms,
     final_chars,
     typed_share: final_chars === 0 ? 0 : Math.round((typed / final_chars) * 1000) / 1000,
+    forgiveness: runs === 0 ? 1 : Math.round((absorbed / runs) * 1000) / 1000,
+    source: 'content',
+  };
+}
+
+/**
+ * Derive metrics from device-level key classes (no characters). Corrections are runs of
+ * back/del keys classified by length; a select followed by typing or deleting is a revision.
+ */
+export function deriveKeyMetrics(keys: KeyEvent[]): Metrics {
+  let chars_typed = 0, chars_pasted = 0, paste_events = 0, max_paste_len = 0;
+  let deletions = 0, typo_fixes = 0, word_changes = 0, restructures = 0, revisions = 0;
+  let bursts = 0, pauses_over_2s = 0, longest_pause_ms = 0, active_ms = 0;
+  let runLen = 0, runs = 0, absorbed = 0, lastDelT = 0, netTyped = 0;
+  let selected = false, inBurst = false;
+  let prevT: number | null = null;
+
+  const closeRun = (nextT?: number, resumed = false) => {
+    if (runLen === 0) return;
+    runs++;
+    if (resumed && nextT !== undefined && nextT - lastDelT <= RECOVER_MS) absorbed++;
+    if (runLen <= 2) typo_fixes++; else if (runLen < 40) word_changes++; else restructures++;
+    runLen = 0;
+  };
+
+  for (const e of keys) {
+    if (prevT !== null) {
+      const gap = e.t - prevT;
+      if (gap < ACTIVE_GAP_MS) active_ms += gap;
+      if (gap > PAUSE_MS) pauses_over_2s++;
+      if (gap > longest_pause_ms) longest_pause_ms = gap;
+      if (gap >= BURST_GAP_MS) inBurst = false;
+    }
+    prevT = e.t;
+    const typing = e.k === 'char' || e.k === 'space' || e.k === 'enter';
+
+    if (e.k === 'back' || e.k === 'del') {
+      deletions++;
+      if (selected) { revisions++; selected = false; } else { runLen++; netTyped = Math.max(0, netTyped - 1); }
+      lastDelT = e.t;
+      inBurst = false;
+      continue;
+    }
+    closeRun(e.t, typing);
+
+    if (e.k === 'select') { selected = true; continue; }
+    if (typing) {
+      if (selected) { revisions++; selected = false; }
+      chars_typed++; netTyped++;
+      if (!inBurst) { bursts++; inBurst = true; }
+    } else if (e.k === 'paste') {
+      paste_events++;
+      const n = e.n ?? 0;
+      chars_pasted += n;
+      if (n > max_paste_len) max_paste_len = n;
+      inBurst = false;
+    } else {
+      selected = false;
+    }
+  }
+  closeRun();
+
+  const final_est = netTyped + chars_pasted;
+  const first = keys[0]?.t ?? 0;
+  const last = keys[keys.length - 1]?.t ?? 0;
+  return {
+    session_ms: Math.max(0, last - first),
+    active_ms,
+    chars_typed,
+    chars_pasted,
+    paste_events,
+    max_paste_len,
+    corrections: { deletions, typo_fixes, word_changes, restructures },
+    revisions,
+    bursts,
+    pauses_over_2s,
+    longest_pause_ms,
+    final_chars: final_est,
+    typed_share: final_est === 0 ? 0 : Math.round((netTyped / final_est) * 1000) / 1000,
+    forgiveness: runs === 0 ? 1 : Math.round((absorbed / runs) * 1000) / 1000,
+    source: 'keys',
   };
 }
 
