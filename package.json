@@ -1,0 +1,23 @@
+{
+  "name": "merit",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Merit harness: signed, Bitcoin-anchored evidence of how work was done.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "packageManager": "pnpm@9.14.4",
+  "dependencies": {
+    "@noble/curves": "^1.6",
+    "@noble/hashes": "^1.5"
+  }
+}

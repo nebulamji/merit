@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@merit/spec": ["packages/spec/src/index.ts"],
+      "@merit/capture": ["packages/capture/src/index.ts"],
+      "@merit/attest": ["packages/attest/src/index.ts"],
+      "@merit/verify": ["packages/verify/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src", "packages/*/test", "apps/*/src"]
+}

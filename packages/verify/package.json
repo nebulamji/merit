@@ -1,0 +1,13 @@
+{
+  "name": "@merit/verify",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "main": "./src/index.ts",
+  "dependencies": {
+    "opentimestamps": "^0.4.9"
+  }
+}
