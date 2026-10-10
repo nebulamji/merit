@@ -1,4 +1,4 @@
-import type { KeyEvent, MeritEvent, Metrics } from '@merit/spec';
+import type { KeyEvent, MeritEvent, Metrics, StyleCounts } from '@merit/spec';
 
 const BURST_GAP_MS = 1000;
 const ACTIVE_GAP_MS = 5000;
@@ -155,7 +155,7 @@ export function deriveKeyMetrics(keys: KeyEvent[]): Metrics {
       if (gap >= BURST_GAP_MS) inBurst = false;
     }
     prevT = e.t;
-    const typing = e.k === 'char' || e.k === 'space' || e.k === 'enter';
+    const typing = e.k === 'char' || e.k === 'upper' || e.k === 'digit' || e.k === 'punct' || e.k === 'space' || e.k === 'enter';
 
     if (e.k === 'back' || e.k === 'del') {
       deletions++;
@@ -184,6 +184,7 @@ export function deriveKeyMetrics(keys: KeyEvent[]): Metrics {
   closeRun();
 
   const final_est = netTyped + chars_pasted;
+  const style = styleOfKeys(keys);
   const first = keys[0]?.t ?? 0;
   const last = keys[keys.length - 1]?.t ?? 0;
   return {
@@ -202,7 +203,30 @@ export function deriveKeyMetrics(keys: KeyEvent[]): Metrics {
     typed_share: final_est === 0 ? 0 : Math.round((netTyped / final_est) * 1000) / 1000,
     forgiveness: runs === 0 ? 1 : Math.round((absorbed / runs) * 1000) / 1000,
     source: 'keys',
+    style,
   };
+}
+
+/** Style habits from the sequence of typed key classes (deletions and navigation reset adjacency). */
+export function styleOfKeys(keys: KeyEvent[]): StyleCounts {
+  const s: StyleCounts = { space_before_punct: 0, multi_spaces: 0, punct_runs: 0, longest_punct_run: 0, capitals: 0, caps_runs: 0, punctuation: 0 };
+  let prev: string | null = null;
+  let spaceRun = 0, punctRun = 0, capsRun = 0;
+  const endPunct = () => { if (punctRun >= 2) s.punct_runs++; if (punctRun > s.longest_punct_run) s.longest_punct_run = punctRun; punctRun = 0; };
+  const endCaps = () => { if (capsRun >= 3) s.caps_runs++; capsRun = 0; };
+  for (const e of keys) {
+    const k = e.k;
+    if (k === 'punct') {
+      s.punctuation++;
+      if (prev === 'space') s.space_before_punct++;
+      punctRun++;
+    } else endPunct();
+    if (k === 'space') { spaceRun++; if (spaceRun === 2) s.multi_spaces++; } else spaceRun = 0;
+    if (k === 'upper') { s.capitals++; capsRun++; } else if (k !== 'punct') endCaps();
+    prev = k === 'char' || k === 'upper' || k === 'digit' || k === 'punct' || k === 'space' || k === 'enter' ? k : null;
+  }
+  endPunct(); endCaps();
+  return s;
 }
 
 export function finalText(events: MeritEvent[], initial = ''): string {

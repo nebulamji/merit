@@ -61,13 +61,40 @@ export interface Metrics {
   forgiveness: number;
   /** what the metrics were derived from */
   source: 'content' | 'keys';
+  /**
+   * Writing-style signature (no characters): habits that make a person's process recognizable.
+   * Imperfection is signal: these are recorded, never "corrected" or penalized.
+   */
+  style?: StyleCounts;
+}
+
+export interface StyleCounts {
+  /** a space typed immediately before punctuation, e.g. "word ." */
+  space_before_punct: number;
+  /** two or more spaces in a row */
+  multi_spaces: number;
+  /** two or more punctuation marks in a row, e.g. ".." or "...." */
+  punct_runs: number;
+  /** longest run of consecutive punctuation marks */
+  longest_punct_run: number;
+  /** capital letters typed */
+  capitals: number;
+  /** runs of 3+ capitals in a row (emphasis) */
+  caps_runs: number;
+  /** punctuation marks typed */
+  punctuation: number;
 }
 
 /**
  * Device-level key event: the class of key and its timing, never the character.
  * Used by the terminal recorder and the menu-bar app.
  */
-export type KeyClass = 'char' | 'space' | 'enter' | 'back' | 'del' | 'paste' | 'nav' | 'select' | 'undo' | 'cmd';
+export type KeyClass =
+  | 'char'   // a letter (lowercase)
+  | 'upper'  // a capital letter (shift + letter)
+  | 'digit'
+  | 'punct'  // punctuation or symbol: . , ! ? " ' ; : - ( ) etc. (which one is never stored)
+  | 'space' | 'enter' | 'back' | 'del' | 'paste' | 'nav' | 'select' | 'undo' | 'cmd';
 
 export interface KeyEvent {
   seq: number;

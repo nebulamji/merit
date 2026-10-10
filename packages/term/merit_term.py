@@ -70,9 +70,18 @@ def classify_chunk(data: bytes):
             flush_run(); out.append(("cmd", 0)); i += 1; continue
         if b == 0x20:
             flush_run(); out.append(("space", 0)); i += 1; continue
-        # printable (count UTF-8 lead bytes only)
+        # printable: classify by type, never store the character
         if b & 0xC0 != 0x80:
-            printable_run += 1
+            flush_run()
+            ch = data[i:i + 4].decode("utf-8", "ignore")[:1] or "?"
+            if ch.isupper():
+                out.append(("upper", 0))
+            elif ch.isdigit():
+                out.append(("digit", 0))
+            elif ch.isalpha():
+                out.append(("char", 0))
+            else:
+                out.append(("punct", 0))
         i += 1
     flush_run()
 

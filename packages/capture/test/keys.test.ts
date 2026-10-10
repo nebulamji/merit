@@ -56,3 +56,13 @@ describe('content forgiveness', () => {
     expect(m.source).toBe('content');
   });
 });
+
+describe('style signature', () => {
+  it('counts space-before-punctuation, punctuation runs, multi-spaces and caps runs', () => {
+    // "word .." then "  " then "WOW" then "x ."
+    const seq: KeyClass[] = ['char','char','char','char','space','punct','punct','space','space','upper','upper','upper','char','space','punct'];
+    const ev = seq.map((k, i) => ({ seq: i, t: i * 100, k }));
+    const m = deriveKeyMetrics(ev);
+    expect(m.style).toEqual({ space_before_punct: 2, multi_spaces: 1, punct_runs: 1, longest_punct_run: 2, capitals: 3, caps_runs: 1, punctuation: 3 });
+  });
+});

@@ -78,6 +78,15 @@ fn classify(key: Key, m: &Mods) -> Option<&'static str> {
             if m.shift { "select" } else { "nav" }
         }
         Escape | Tab | F1 | F2 | F3 | F4 | F5 | F6 | F7 | F8 | F9 | F10 | F11 | F12 => "cmd",
+        Num0 | Num1 | Num2 | Num3 | Num4 | Num5 | Num6 | Num7 | Num8 | Num9 | Kp0 | Kp1 | Kp2 | Kp3 | Kp4 | Kp5 | Kp6 | Kp7 | Kp8 | Kp9 => {
+            if m.shift { "punct" } else { "digit" } // shift+digit = ! @ # $ …
+        }
+        Dot | Comma | SemiColon | Quote | Slash | BackSlash | Minus | Equal | LeftBracket | RightBracket | BackQuote
+        | KpMinus | KpPlus | KpMultiply | KpDivide | IntlBackslash => "punct",
+        KeyA | KeyB | KeyC | KeyD | KeyE | KeyF | KeyG | KeyH | KeyI | KeyJ | KeyK | KeyL | KeyM | KeyN | KeyO
+        | KeyP | KeyQ | KeyR | KeyS | KeyT | KeyU | KeyV | KeyW | KeyX | KeyY | KeyZ => {
+            if m.shift { "upper" } else { "char" }
+        }
         _ => "char",
     })
 }
@@ -124,7 +133,7 @@ fn start_listener(state: Shared) {
 fn start_session(state: &Shared) -> String {
     let mut st = state.lock().unwrap();
     if st.session.is_some() {
-        return "Already recording".into();
+        return "Already measuring".into();
     }
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
     let path = merit_home().join("sessions").join(format!("{stamp}-desktop.jsonl"));
@@ -136,7 +145,7 @@ fn start_session(state: &Shared) -> String {
                 let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
             }
             st.session = Some(Session { path, started: Instant::now(), seq: 0, file });
-            "Recording (key classes only)".into()
+            "Measuring integrity (key types only, never letters)".into()
         }
         Err(e) => format!("Could not start: {e}"),
     }
@@ -145,7 +154,7 @@ fn start_session(state: &Shared) -> String {
 /// Stop recording, then certify + anchor via the merit CLI (MERIT_CLI or ~/merit/dist/merit-cli.cjs).
 fn stop_and_certify(state: &Shared) -> String {
     let session = state.lock().unwrap().session.take();
-    let Some(s) = session else { return "Not recording".into() };
+    let Some(s) = session else { return "Not measuring".into() };
     drop(s.file);
     let cli = std::env::var("MERIT_CLI")
         .map(PathBuf::from)
@@ -154,7 +163,7 @@ fn stop_and_certify(state: &Shared) -> String {
     match out {
         Ok(o) if o.status.success() => {
             state.lock().unwrap().last_cert = Some(PathBuf::from(format!("{}", s.path.display()).replace(".jsonl", ".cert.json")));
-            format!("Certified ({} key events). Anchor pending.", s.seq)
+            format!("Signed ({} keystrokes). Anchoring to Bitcoin…", s.seq)
         }
         Ok(o) => format!("Certify failed: {}", String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("")),
         Err(e) => format!("Could not run merit CLI: {e}"),
@@ -216,8 +225,8 @@ fn main() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             let status = MenuItem::with_id(app, "status", "Idle", false, None::<&str>)?;
-            let start = MenuItem::with_id(app, "start", "Start session", true, None::<&str>)?;
-            let stop = MenuItem::with_id(app, "stop", "Stop & certify", true, None::<&str>)?;
+            let start = MenuItem::with_id(app, "start", "Measure integrity", true, None::<&str>)?;
+            let stop = MenuItem::with_id(app, "stop", "Stop & sign", true, None::<&str>)?;
             let dash = MenuItem::with_id(app, "dash", "Open dashboard", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Merit", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
@@ -234,13 +243,16 @@ fn main() {
                     "start" => {
                         let msg = start_session(&st);
                         let _ = status_item.set_text(&msg);
-                        if let Some(tray) = app.tray_by_id("merit") { let _ = tray.set_title(Some("● REC")); }
+                        if let Some(tray) = app.tray_by_id("merit") {
+                            if let Ok(img) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-active.png")) { let _ = tray.set_icon(Some(img)); let _ = tray.set_icon_as_template(true); }
+                        }
                     }
                     "stop" => {
-                        if let Some(tray) = app.tray_by_id("merit") { let _ = tray.set_title(Some("signing…")); }
                         let msg = stop_and_certify(&st);
                         let _ = status_item.set_text(&msg);
-                        if let Some(tray) = app.tray_by_id("merit") { let _ = tray.set_title(None::<&str>); }
+                        if let Some(tray) = app.tray_by_id("merit") {
+                            if let Ok(img) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) { let _ = tray.set_icon(Some(img)); let _ = tray.set_icon_as_template(true); }
+                        }
                         open_dashboard(app);
                     }
                     "dash" => open_dashboard(app),

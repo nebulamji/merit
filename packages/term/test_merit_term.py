@@ -33,6 +33,12 @@ class ClassifyTest(unittest.TestCase):
     def test_short_run_is_typing(self):
         self.assertEqual(classes(b"ab"), ["char", "char"])
 
+    def test_classes_not_characters(self):
+        self.assertEqual(classes(b"A"), ["upper"])
+        self.assertEqual(classes(b"7"), ["digit"])
+        self.assertEqual(classes(b"."), ["punct"])
+        self.assertEqual(classes(b'"'), ["punct"])
+
     def test_utf8_counts_characters(self):
         self.assertEqual(classes("é".encode()), ["char"])
 
