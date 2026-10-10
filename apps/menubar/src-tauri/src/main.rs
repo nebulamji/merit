@@ -130,6 +130,11 @@ fn start_session(state: &Shared) -> String {
     let path = merit_home().join("sessions").join(format!("{stamp}-desktop.jsonl"));
     match OpenOptions::new().create(true).append(true).open(&path) {
         Ok(file) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+            }
             st.session = Some(Session { path, started: Instant::now(), seq: 0, file });
             "Recording (key classes only)".into()
         }
@@ -148,9 +153,7 @@ fn stop_and_certify(state: &Shared) -> String {
     let out = Command::new("node").arg(&cli).arg("certify").arg(&s.path).arg("--stamp").output();
     match out {
         Ok(o) if o.status.success() => {
-            let cert = s.path.with_extension("").with_extension("cert.json");
             state.lock().unwrap().last_cert = Some(PathBuf::from(format!("{}", s.path.display()).replace(".jsonl", ".cert.json")));
-            let _ = cert;
             format!("Certified ({} key events). Anchor pending.", s.seq)
         }
         Ok(o) => format!("Certify failed: {}", String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("")),
@@ -228,8 +231,18 @@ fn main() {
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
-                    "start" => { let _ = status_item.set_text(start_session(&st)); }
-                    "stop" => { let _ = status_item.set_text(stop_and_certify(&st)); }
+                    "start" => {
+                        let msg = start_session(&st);
+                        let _ = status_item.set_text(&msg);
+                        if let Some(tray) = app.tray_by_id("merit") { let _ = tray.set_title(Some("● REC")); }
+                    }
+                    "stop" => {
+                        if let Some(tray) = app.tray_by_id("merit") { let _ = tray.set_title(Some("signing…")); }
+                        let msg = stop_and_certify(&st);
+                        let _ = status_item.set_text(&msg);
+                        if let Some(tray) = app.tray_by_id("merit") { let _ = tray.set_title(None::<&str>); }
+                        open_dashboard(app);
+                    }
                     "dash" => open_dashboard(app),
                     "quit" => app.exit(0),
                     _ => {}
