@@ -8,6 +8,11 @@ describe('privacy lint (refuses anything but key types)', () => {
   it('accepts a clean key session', () => {
     expect(privacyLint([{ seq: 0, t: 1, k: 'char' }, { seq: 1, t: 2, k: 'paste', n: 12, app: 'term:claude' }])).toEqual([]);
   });
+  it('accepts review decisions but never their words', () => {
+    expect(privacyLint([{ seq: 0, t: 1, k: 'review', decision: 'keep', kind: 'repeated_punct' }])).toEqual([]);
+    expect(privacyLint([{ seq: 0, t: 1, k: 'review', decision: 'keep', kind: 'repeated_punct', word: 'wow' }]).length).toBe(1);
+    expect(privacyLint([{ seq: 0, t: 1, k: 'review', decision: 'maybe', kind: 'x' }]).length).toBe(2);
+  });
   it('refuses a session carrying a character or text', () => {
     expect(privacyLint([{ seq: 0, t: 1, k: 'a' }]).length).toBe(1);
     expect(privacyLint([{ seq: 0, t: 1, k: 'char', text: 'hello' }]).length).toBe(1);

@@ -66,6 +66,11 @@ export interface Metrics {
    * Imperfection is signal: these are recorded, never "corrected" or penalized.
    */
   style?: StyleCounts;
+  /**
+   * The author's decisions on offered corrections (accept = slip fixed, keep = deliberate style).
+   * Decisions and correction kinds only, never words.
+   */
+  review?: { offered: number; accepted: number; kept: number; kept_ratio_by_kind: Record<string, number> };
 }
 
 export interface StyleCounts {

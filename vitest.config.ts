@@ -8,6 +8,7 @@ export default defineConfig({
       '@merit/capture': p('./packages/capture/src/index.ts'),
       '@merit/attest': p('./packages/attest/src/index.ts'),
       '@merit/verify': p('./packages/verify/src/index.ts'),
+      '@merit/review': p('./packages/review/src/index.ts'),
       opentimestamps: p('./packages/verify/node_modules/opentimestamps/index.js'),
     },
   },

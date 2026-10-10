@@ -12,5 +12,6 @@ These rules are part of the protocol, not a policy page. Code that breaks them i
 8. **Say "evidence of," not "proof of,"** and publish error characteristics before making accuracy claims.
 9. **Institution-mandated use** (an employer or school requiring capture) needs notice and consent flows before deployment; not a v0 use case.
 10. **No recognition for minors.**
+11. **Correct, never impose.** The review step offers corrections computed on the device. Nothing changes unless the author accepts. Each decision (accept = slip fixed, keep = deliberate style) is logged with its correction kind only, never the words. It is the author's own consent deepening their own record.
 
 Background: research memo `2026-10-10-legal-scan` (not legal advice) covering BIPA, CUBI, Washington MHMDA, Colorado, CCPA/CPRA, GDPR Art. 9, the EU AI Act and FTC guidance.
