@@ -18,6 +18,7 @@ Anti-cheating tools ask *"did a human write this?"* about one document. Merit ke
 | `packages/attest` | Ed25519 self-custody keys, signed certificates, salted Merkle commitment over every edit, single-edit disclosure proofs |
 | `packages/verify` | Offline verifier, OpenTimestamps stamping/upgrade/verification, `merit` CLI |
 | `packages/agentauth` | Web Bot Auth (RFC 9421) request signing for agent keys — passes the draft's official Ed25519 vectors — plus a `Merit-Delegation` header binding the agent to its principal |
+| `packages/calibrate` | Error rates for a scoring standard on labeled composing / retyping / AI-retyping sessions, with Wilson intervals; refuses accuracy claims below the minimums (`docs/CALIBRATION.md`) |
 | `packages/term` | `merit-term rec -- <cmd>`: record key classes typed into any terminal program (e.g. an AI coding agent) |
 | `apps/menubar` | macOS menu-bar app: Start session · Stop & certify · Open dashboard |
 

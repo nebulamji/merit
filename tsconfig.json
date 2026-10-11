@@ -10,7 +10,8 @@
       "@merit/verify": ["packages/verify/src/index.ts"],
       "@merit/review": ["packages/review/src/index.ts"],
       "@merit/score": ["packages/score/src/index.ts"],
-      "@merit/agentauth": ["packages/agentauth/src/index.ts"]
+      "@merit/agentauth": ["packages/agentauth/src/index.ts"],
+      "@merit/calibrate": ["packages/calibrate/src/index.ts"]
     }
   },
   "include": ["packages/*/src", "packages/*/test", "apps/*/src"]

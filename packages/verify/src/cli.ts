@@ -7,11 +7,15 @@
  *   merit certify <session.jsonl> [--text doc.txt] [--stamp]   sign a recorded session
  *   merit whoami                     print your public key (creates your key on first run)
  *   merit key migrate                move a key file into the system keychain (verified), then remove the file
+ *   merit label <session.jsonl> composed|retyped|ai-retyped --participant <id> [--task t] [--manifest m]
+ *   merit calibrate [manifest.jsonl] [--threshold 0.5]   error rates of the active standard on labeled sessions
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, unlinkSync } from 'node:fs';
 import { Entry } from '@napi-rs/keyring';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
+import { appendFileSync } from 'node:fs';
+import { calibrate, reportMarkdown, CAL_LABELS, type CalLabel, type Sample } from '@merit/calibrate';
 import { verifyCertificate, stamp, upgrade } from './index';
 import { generateKeyPair, newSessionSecret, buildAttestation, publicKeyOf } from '@merit/attest';
 import { deriveKeyMetrics } from '@merit/capture';
@@ -95,6 +99,42 @@ async function main() {
   }
   if (cmd === 'whoami') {
     console.log(loadOrCreateKey().publicKey);
+    return;
+  }
+  if (cmd === 'calibrate') {
+    const manifest = file && !file.startsWith('--') ? file : join(HOME, 'calibration', 'manifest.jsonl');
+    if (!existsSync(manifest)) { console.log(`no manifest at ${manifest}; label sessions first with "merit label"`); process.exit(2); }
+    const rows = readFileSync(manifest, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const samples: Sample[] = rows.map((row) => {
+      const keys = readFileSync(resolve(dirname(manifest), row.session), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+      const problems = privacyLint(keys);
+      if (problems.length) throw new Error(`${row.session}: ${problems[0]}`);
+      return { id: row.session, participant: row.participant, label: row.label, task: row.task, metrics: deriveKeyMetrics(keys) };
+    });
+    const all = [file, ...rest]; const ti = all.indexOf('--threshold');
+    const th = ti >= 0 ? Number(all[ti + 1]) : 0.5;
+    const report = calibrate(samples, Number.isFinite(th) ? th : 0.5);
+    const out = join(dirname(manifest), 'report');
+    writeFileSync(out + '.json', JSON.stringify(report, null, 2));
+    writeFileSync(out + '.md', reportMarkdown(report));
+    console.log(reportMarkdown(report) + `\nwrote ${out}.json and ${out}.md`);
+    return;
+  }
+  if (cmd === 'label') {
+    const label = rest[0] as CalLabel;
+    const participant = flag('--participant');
+    if (!file || !CAL_LABELS.includes(label) || !participant) {
+      console.log('usage: merit label <session.jsonl> composed|retyped|ai-retyped --participant <id> [--task t] [--manifest m]'); process.exit(2);
+    }
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(participant)) { console.log('participant must be a pseudonym (letters, digits, - _), never a name or email'); process.exit(2); }
+    const manifest = flag('--manifest') ?? join(HOME, 'calibration', 'manifest.jsonl');
+    mkdirSync(dirname(manifest), { recursive: true });
+    const keys = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const problems = privacyLint(keys);
+    if (problems.length) { console.log(`refused: ${problems[0]}`); process.exit(1); }
+    const row = { session: resolve(file), label, participant, task: flag('--task'), labeled_at: new Date().toISOString() };
+    appendFileSync(manifest, JSON.stringify(row) + '\n');
+    console.log(`labeled ${file} as ${label} (${participant}) -> ${manifest}`);
     return;
   }
   if (!cmd || !file) {
