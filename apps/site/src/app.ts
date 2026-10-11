@@ -1,7 +1,8 @@
 import { attestationId, sha256Hex } from '@merit/spec';
 import { verifySignature, bodyOf } from '@merit/attest';
 import { shapeOf, type Shape } from './shape';
-import { RULES, FOUNDER, workFloor, anchorClaim, recognitionClaim } from './qualify';
+import { FOUNDER, EARN, workFloor, anchorClaim, recognitionClaim, anchorDigestHex } from './qualify';
+import { readOts } from '../../../packages/verify/src/ots';
 import { blockMerkleRoot } from '../../../packages/verify/src/ots';
 
 interface Mark { seq: number; id: string; key: string | null; created_utc: string; chain: string; shape: Shape; by_seq?: number | null; anchor_height?: number | null }
@@ -87,7 +88,7 @@ class BookView {
     const bySeq = new Map(this.drawn.map((x) => [x.mark.seq, x.d.at] as const));
     c.strokeStyle = faint; c.lineWidth = 0.6; c.globalAlpha = 0.55;
     this.drawn.forEach(({ mark, d }, i) => {
-      if ((elapsed - this.revealMs(i)) < 0) return;
+      if ((elapsed - this.revealMs(i)) < 0 || mark.by_seq === -1) return;
       const from = (mark.by_seq && bySeq.get(mark.by_seq)) || [0, 0];
       c.beginPath(); c.moveTo(from[0], from[1]); c.lineTo(d.at[0], d.at[1]); c.stroke();
     });
@@ -134,17 +135,20 @@ function status(b: Book) {
 }
 
 let pending: any = null;
-const parts: { cert?: any; ots?: Uint8Array; rec?: any } = {};
+const parts: { cert?: any; ots?: Uint8Array; rec?: any; certs: Map<string, any>; proofs: Uint8Array[] } = { certs: new Map(), proofs: [] };
+const proofFor = (c: any) => parts.proofs.find((p) => { try { return readOts(p).file_digest === anchorDigestHex(c); } catch { return false; } });
+const pickPrimary = () => { const all = [...parts.certs.values()]; parts.cert = all.sort((a, b) => String(b.created_utc).localeCompare(String(a.created_utc)))[0]; parts.ots = parts.cert ? proofFor(parts.cert) : undefined; };
 let book: Book;
 
+const b64 = (u: Uint8Array) => { let s = ''; for (const x of u) s += String.fromCharCode(x); return btoa(s); };
 const OTS_MAGIC = [0x00, 0x4f, 0x70, 0x65, 0x6e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x73];
 async function take(f: File) {
   const b = new Uint8Array(await f.arrayBuffer());
-  if (OTS_MAGIC.every((x, i) => b[i] === x)) { parts.ots = b; return; }
+  if (OTS_MAGIC.every((x, i) => b[i] === x)) { parts.proofs.push(b); pickPrimary(); return; }
   try {
     const j = JSON.parse(new TextDecoder().decode(b));
     if (j?.schema === 'merit-recognition/0.1') parts.rec = j;
-    else { parts.cert = j; $<HTMLTextAreaElement>('#cert').value = JSON.stringify(j, null, 2); }
+    else { parts.certs.set(j?.id ?? String(parts.certs.size), j); pickPrimary(); $<HTMLTextAreaElement>('#cert').value = JSON.stringify(parts.cert, null, 2); }
   } catch { /* ignore unknown files */ }
 }
 
@@ -186,19 +190,31 @@ async function qualify() {
   }
   if (anchored === false) list.append(line(false, anchorText));
 
-  const rc = recognitionClaim(c, parts.rec, book.founder ?? FOUNDER);
-  let recText = 'Recognized: ';
-  let recOk = !rc;
-  if (c.author.public_key === (book.founder ?? FOUNDER)) recText += 'founding recognizer';
-  else if (rc) recText += rc;
-  else {
-    const r = parts.rec.recognizer as string;
-    const m = book.marks.find((x) => x.key && r.startsWith(x.key));
-    if (r === (book.founder ?? FOUNDER)) recText += 'by the founding recognizer';
-    else if (m) recText += `by the author of Mark ${m.seq}`;
-    else { recOk = false; recText += 'the recognizer is not in the Book yet'; }
+  const founder = book.founder ?? FOUNDER;
+  let recOk = false;
+  if (c.author.public_key === founder) { recOk = true; list.append(line(true, 'Entry: founding recognizer')); }
+  else if (parts.rec) {
+    const rc = recognitionClaim(c, parts.rec, founder);
+    let text = 'Entry by recognition: ';
+    if (rc) text += rc;
+    else {
+      const r = parts.rec.recognizer as string; const m = book.marks.find((x) => x.key && r.startsWith(x.key));
+      if (r === founder) { recOk = true; text += 'by the founding recognizer'; }
+      else if (m) { recOk = true; text += `by the author of Mark ${m.seq}`; }
+      else text += 'the recognizer is not in the Book yet';
+    }
+    list.append(line(recOk, text));
+  } else {
+    // Earned by time: own certificates, each anchored, spanning about a week of blocks.
+    const mine = [...parts.certs.values()].filter((x) => x?.author?.public_key === c.author.public_key && !workFloor(x));
+    const heights: number[] = [];
+    for (const x of mine) { const p = proofFor(x); if (!p) continue; const a = anchorClaim(x, p); if (typeof a !== 'string') heights.push(a[0].height); }
+    const span = heights.length ? Math.max(...heights) - Math.min(...heights) : 0;
+    recOk = heights.length >= EARN.certificates && span >= EARN.span_blocks;
+    list.append(line(recOk, recOk
+      ? `Entry earned by time: ${heights.length} anchored certificates over about ${Math.round(span / 144)} days`
+      : `Entry: a recognition, or earn it by time with ${EARN.certificates} of your own anchored certificates over about 7 days (you have ${heights.length} over ${Math.round(span / 144)} days)`));
   }
-  list.append(line(recOk, recText));
 
   if (!floor && anchored !== false && recOk) { pending = c; $('#consent-row').hidden = false; }
 }
@@ -207,7 +223,7 @@ async function main() {
   book = await fetch('/api/book').then((r) => r.json());
   const view = new BookView($('#book'), book); status(book);
   const ta = $<HTMLTextAreaElement>('#cert');
-  ta.addEventListener('input', () => { try { parts.cert = JSON.parse(ta.value); } catch { parts.cert = ta.value.trim() ? {} : undefined; } qualify(); });
+  ta.addEventListener('input', () => { parts.certs.clear(); try { const j = JSON.parse(ta.value); parts.certs.set(j?.id ?? '0', j); } catch { if (ta.value.trim()) parts.certs.set('0', {}); } pickPrimary(); qualify(); });
   const file = $<HTMLInputElement>('#file');
   file.addEventListener('change', async () => { for (const f of Array.from(file.files ?? [])) await take(f); qualify(); });
   const drop = $('#drop');
@@ -218,7 +234,8 @@ async function main() {
   $<HTMLButtonElement>('#inscribe').addEventListener('click', async () => {
     if (!pending) return;
     const btn = $<HTMLButtonElement>('#inscribe'); btn.disabled = true;
-    const r = await fetch('/api/inscribe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ certificate: pending, ots: btoa(String.fromCharCode(...parts.ots!)), recognition: parts.rec, consent: true }) }).then((x) => x.json()).catch(() => ({ ok: false, reason: 'network error' }));
+    const r = await fetch('/api/inscribe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ certificate: pending, ots: b64(parts.ots!), recognition: parts.rec,
+      history: parts.rec ? [] : [...parts.certs.values()].filter((x) => x.id !== pending.id && x?.author?.public_key === pending.author.public_key).flatMap((x) => { const p = proofFor(x); return p ? [{ certificate: x, ots: b64(p) }] : []; }), consent: true }) }).then((x) => x.json()).catch(() => ({ ok: false, reason: 'network error' }));
     const out = $('#result');
     if (!r.ok) { out.dataset.state = 'bad'; out.textContent = `Not inscribed: ${r.reason}.`; btn.disabled = false; return; }
     if (r.already) { out.textContent = `Already in the Book as No. ${r.seq}.`; return; }

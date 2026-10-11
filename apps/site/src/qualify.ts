@@ -1,5 +1,7 @@
 import { canonicalJSON, sha256Hex, type MeritAttestation } from '@merit/spec';
-import { verifyRecognition, type Recognition } from '@merit/attest';
+import { verifyRecognition, verifySignature as verifySignatureOf, bodyOf, type Recognition } from '@merit/attest';
+import { attestationId } from '@merit/spec';
+const attestationIdOf = (c: MeritAttestation) => attestationId(bodyOf(c));
 import { readOts } from '../../../packages/verify/src/ots';
 import { shapeOf } from './shape';
 
@@ -42,4 +44,32 @@ export function recognitionClaim(c: MeritAttestation, r: Recognition | undefined
   if (!verifyRecognition(r, c.id)) return 'the recognition does not verify for this certificate';
   if (r.recognizer === c.author.public_key) return 'you cannot recognize yourself';
   return null;
+}
+
+/**
+ * The second door: earned by time. Three of your own certificates, each real work and each anchored
+ * in Bitcoin, whose anchors span at least ~7 days of blocks. Time is the one cost a machine can
+ * enforce without trusting anyone, and Bitcoin makes it impossible to compress (whitepaper §11).
+ */
+export const EARN = { certificates: 3, span_blocks: 1008, per_day: 25 };
+
+export interface Proved { certificate: MeritAttestation; ots: Uint8Array }
+
+/** Checks everything about an earned-by-time claim except the block lookups; returns the claims to confirm. */
+export function earnedClaim(primary: MeritAttestation, primaryClaims: { height: number; root: string }[], history: Proved[]):
+  string | { claims: { height: number; root: string }[][] } {
+  const others = history.filter((h) => h.certificate?.id !== primary.id);
+  const ids = new Set(others.map((h) => h.certificate?.id));
+  if (ids.size !== others.length) return 'the same certificate was given twice';
+  if (others.length + 1 < EARN.certificates) return `${EARN.certificates} of your own anchored certificates over 7 days, or a recognition (you gave ${others.length + 1})`;
+  const all: { height: number; root: string }[][] = [primaryClaims];
+  for (const h of others) {
+    const c = h.certificate;
+    try { if (c.id !== attestationIdOf(c) || !verifySignatureOf(c)) return 'one of your earlier certificates does not verify'; } catch { return 'one of your earlier certificates is malformed'; }
+    if (c.author.public_key !== primary.author.public_key) return 'all certificates must be signed by the same key';
+    const f = workFloor(c); if (f) return `each certificate needs ${f}`;
+    const a = anchorClaim(c, h.ots); if (typeof a === 'string') return `an earlier certificate: ${a}`;
+    all.push(a);
+  }
+  return { claims: all };
 }

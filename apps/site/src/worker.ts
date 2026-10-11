@@ -2,7 +2,7 @@ import { attestationId, sha256Hex, type MeritAttestation } from '@merit/spec';
 import { verifySignature, bodyOf } from '@merit/attest';
 import { shapeOf } from './shape';
 import { blockMerkleRoot } from '../../../packages/verify/src/ots';
-import { RULES, FOUNDER, workFloor, anchorClaim, recognitionClaim } from './qualify';
+import { RULES, FOUNDER, EARN, workFloor, anchorClaim, recognitionClaim, earnedClaim, type Proved } from './qualify';
 import type { Recognition } from '@merit/attest';
 
 import { DurableObject } from 'cloudflare:workers';
@@ -49,7 +49,7 @@ export class Book extends DurableObject {
   list() {
     const marks = this.sql.exec('SELECT seq, id, substr(public_key,1,12) AS key, created_utc, inscribed_utc, chain, shape, by_seq, anchor_height FROM inscriptions ORDER BY seq').toArray()
       .map((x: any) => ({ ...x, shape: JSON.parse(x.shape) }));
-    return { genesis: GENESIS, founder: this.founder, rules: RULES, head: marks.length ? (marks[marks.length - 1] as any).chain : GENESIS, marks };
+    return { genesis: GENESIS, founder: this.founder, rules: { ...RULES, earn: EARN }, head: marks.length ? (marks[marks.length - 1] as any).chain : GENESIS, marks };
   }
   mark(seq: number) {
     const r = this.sql.exec('SELECT seq, chain, certificate, by_seq, anchor_height, ots, recognition FROM inscriptions WHERE seq = ?', seq).toArray()[0] as any;
@@ -63,7 +63,7 @@ export class Book extends DurableObject {
     return root;
   }
 
-  async inscribe(cert: MeritAttestation, otsB64: string, rec: Recognition | undefined, ipBucket: string) {
+  async inscribe(cert: MeritAttestation, otsB64: string, rec: Recognition | undefined, ipBucket: string, history: Proved[] = []) {
     const dup = this.sql.exec('SELECT seq, chain FROM inscriptions WHERE id = ?', cert.id).toArray()[0] as any;
     if (dup) return { ok: true, seq: dup.seq, chain: dup.chain, already: true };
     const n = (this.sql.exec('INSERT INTO rate (bucket, n) VALUES (?, 1) ON CONFLICT(bucket) DO UPDATE SET n = n + 1 RETURNING n', ipBucket).one() as any).n;
@@ -81,20 +81,39 @@ export class Book extends DurableObject {
     for (const c of claims) { try { if ((await this.blockRoot(c.height)) === c.root) { height = c.height; break; } } catch { /* explorer down */ } }
     if (height === null) return { ok: false, status: 422, reason: 'the Bitcoin anchor could not be confirmed against the block' };
 
-    const rc = recognitionClaim(cert, rec, this.founder);
-    if (rc) return { ok: false, status: 422, reason: `needs ${rc}` };
-    let bySeq = 0;
-    if (cert.author.public_key !== this.founder) {
-      const recognizer = rec!.recognizer;
-      if (recognizer !== this.founder) {
-        const first = this.sql.exec('SELECT MIN(seq) AS s FROM inscriptions WHERE public_key = ?', recognizer).one() as any;
-        if (!first?.s) return { ok: false, status: 422, reason: 'the recognizer is not in the Book yet' };
-        bySeq = first.s;
+    let bySeq: number | null = 0;
+    if (cert.author.public_key !== this.founder && !rec) {
+      // Earned by time: no recognizer, so the history must carry the cost.
+      const e = earnedClaim(cert, claims, history);
+      if (typeof e === 'string') return { ok: false, status: 422, reason: `needs ${e}` };
+      const heights: number[] = [height];
+      for (const cl of e.claims.slice(1)) {
+        let h: number | null = null;
+        for (const c of cl) { try { if ((await this.blockRoot(c.height)) === c.root) { h = c.height; break; } } catch { /* next */ } }
+        if (h === null) return { ok: false, status: 422, reason: 'an earlier certificate’s Bitcoin anchor could not be confirmed' };
+        heights.push(h);
       }
-      const since = new Date(Date.now() - 30 * 86400_000).toISOString();
-      const used = (this.sql.exec('SELECT COUNT(*) AS c FROM inscriptions WHERE recognizer = ? AND inscribed_utc > ?', recognizer, since).one() as any).c;
-      const cap = recognizer === this.founder ? RULES.founder_recognitions_per_30_days : RULES.recognitions_per_30_days;
-      if (used >= cap) return { ok: false, status: 429, reason: `that recognizer has used all ${cap} recognitions for the last 30 days` };
+      const span = Math.max(...heights) - Math.min(...heights);
+      if (span < EARN.span_blocks) return { ok: false, status: 422, reason: `your anchors span ${span} blocks (about ${Math.round(span / 144)} days); earning entry takes about 7 days (${EARN.span_blocks} blocks), or a recognition` };
+      const today = new Date().toISOString().slice(0, 10);
+      const earned = (this.sql.exec("SELECT COUNT(*) AS c FROM inscriptions WHERE by_seq = -1 AND substr(inscribed_utc,1,10) = ?", today).one() as any).c;
+      if (earned >= EARN.per_day) return { ok: false, status: 429, reason: 'today’s entries by time are full; try again tomorrow (UTC), or ask for a recognition' };
+      bySeq = -1;
+    } else {
+      const rc = recognitionClaim(cert, rec, this.founder);
+      if (rc) return { ok: false, status: 422, reason: `needs ${rc}` };
+      if (cert.author.public_key !== this.founder) {
+        const recognizer = rec!.recognizer;
+        if (recognizer !== this.founder) {
+          const first = this.sql.exec('SELECT MIN(seq) AS s FROM inscriptions WHERE public_key = ?', recognizer).one() as any;
+          if (!first?.s) return { ok: false, status: 422, reason: 'the recognizer is not in the Book yet' };
+          bySeq = first.s;
+        }
+        const since = new Date(Date.now() - 30 * 86400_000).toISOString();
+        const used = (this.sql.exec('SELECT COUNT(*) AS c FROM inscriptions WHERE recognizer = ? AND inscribed_utc > ?', recognizer, since).one() as any).c;
+        const cap = recognizer === this.founder ? RULES.founder_recognitions_per_30_days : RULES.recognitions_per_30_days;
+        if (used >= cap) return { ok: false, status: 429, reason: `that recognizer has used all ${cap} recognitions for the last 30 days` };
+      }
     }
 
     const last = this.sql.exec('SELECT seq, chain FROM inscriptions ORDER BY seq DESC LIMIT 1').toArray()[0] as any;
@@ -112,7 +131,7 @@ const book = (env: Env) => env.BOOK.get(env.BOOK.idFromName('the-book'));
 
 async function inscribe(req: Request, env: Env) {
   const len = Number(req.headers.get('content-length') ?? 0);
-  if (len > 64_000) return json({ ok: false, reason: 'too large' }, 413);
+  if (len > 256_000) return json({ ok: false, reason: 'too large' }, 413);
   let body: any;
   try { body = await req.json(); } catch { return json({ ok: false, reason: 'not JSON' }, 400); }
   if (body?.consent !== true) return json({ ok: false, reason: 'consent required' }, 400);
@@ -120,7 +139,12 @@ async function inscribe(req: Request, env: Env) {
   const v = check(cert);
   if (!v.ok) return json(v, 422);
   const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
-  const r: any = await book(env).inscribe(cert, body.ots, body.recognition, sha256Hex(`${ip}|${new Date().toISOString().slice(0, 13)}`));
+    let history: Proved[] = [];
+  try {
+    history = (Array.isArray(body.history) ? body.history : []).slice(0, 5)
+      .map((h: any) => ({ certificate: h.certificate, ots: Uint8Array.from(atob(h.ots ?? ''), (ch) => ch.charCodeAt(0)) }));
+  } catch { return json({ ok: false, reason: 'history proofs are not base64' }, 400); }
+  const r: any = await book(env).inscribe(cert, body.ots, body.recognition, sha256Hex(`${ip}|${new Date().toISOString().slice(0, 13)}`), history);
   const { status, ...rest } = r;
   return json(rest, status ?? 200);
 }

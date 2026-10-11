@@ -23,7 +23,7 @@
 <p>Merit records how work was done, on your own device: corrections, revisions, pauses, pastes, timing. Never the words. You sign the record with a key only you hold, and its fingerprint is timestamped in Bitcoin so it can never be backdated. What you get is a certificate: evidence of a process, checkable by anyone, owned by you.</p>
 
 <h2 id="verify">Verify, then inscribe</h2>
-<p>Drop a certificate here, together with its anchor proof (<span class="mono">.ots</span>) and a recognition (<span class="mono">.recognition.json</span>). Everything is checked in your browser first, and nothing leaves this page unless you inscribe.</p>
+<p>Drop a certificate here with its anchor proof (<span class="mono">.ots</span>), plus either a recognition (<span class="mono">.recognition.json</span>) or your earlier certificates and their proofs. Everything is checked in your browser first, and nothing leaves this page unless you inscribe.</p>
 <div id="drop"><textarea id="cert" class="mono" spellcheck="false" placeholder='Drop files here, or paste a certificate: {"schema":"merit-attestation/0.1", …}'></textarea></div>
 <div class="row"><label class="file">or choose files<input id="file" type="file" multiple accept=".json,.ots,application/json"></label></div>
 <div id="result" aria-live="polite"></div>
@@ -32,10 +32,10 @@
 <div class="row"><button id="inscribe" disabled>Inscribe</button></div></div>
 
 <h2 id="rules">What it takes to enter</h2>
-<p>The Book admits work, not traffic. A certificate is inscribed only when all three hold, and the server checks each one again:</p>
+<p>The Book admits work, not traffic. A certificate is inscribed only when all three hold, and the server checks each one again. No one reviews anything by hand:</p>
 <p><em>Real work.</em> At least 250 characters, mostly typed rather than pasted.<br>
 <em>Anchored.</em> Its timestamp is confirmed in a Bitcoin block, not just submitted. That takes a few hours after you sign, and it means nothing here was backdated.<br>
-<em>Recognized.</em> Someone already in the Book signs that they recognize it (<span class="mono">merit recognize cert.json</span>). Each person can recognize three certificates every thirty days. Every recognition is public and drawn as a thread from the recognizer's mark to the new one, so the Book shows who brought whom.</p>
+<em>Recognized, or earned by time.</em> Either someone already in the Book signs that they recognize it (<span class="mono">merit recognize cert.json</span>), which is drawn as a thread from their mark to yours, or you earn entry yourself: three of your own certificates, each real work and each anchored, spread over at least a week of Bitcoin blocks. Time is the one cost that cannot be faked here. Each person can recognize three certificates every thirty days, and up to twenty-five people a day can enter by time.</p>
 <p class="small">The first recognizer is the author of the paper; their threads run from Mark 0 at the center.</p>
 
 <h2 id="what">What this is</h2>
