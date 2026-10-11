@@ -28,3 +28,9 @@ OpenTimestamps over `sha256(canonical(certificate))` (the full signed certificat
 ## Event models
 - `MeritEvent` (editors): `{ seq, t, kind: insert|delete_back|delete_fwd|replace|paste|cut|undo|redo, pos, removed?, inserted? }`
 - `KeyEvent` (devices): `{ seq, t, k: char|space|enter|back|del|paste|nav|select|undo|cmd, n?, app? }` — never the character.
+
+## Know Your Agent (mutual receipts)
+- `merit-delegation/0.1`: principal signs `{principal, agent, scope, not_after_utc}`.
+- `merit-agent-receipt/0.1`: agent signs `{delegation_sig, about_certificate?, work_sha256, conduct{directed_by_principal, within_terms, recoveries}, created_utc}`.
+- `merit-countersign/0.1`: principal signs `{receipt_sig, verdict: accepted|rejected, created_utc}`.
+The triangle is valid when all three signatures verify, each references the previous signature, and the receipt falls inside the delegation window. It records signed facts about the relationship (who directed, within terms, errors recovered), never anyone's mood. A portable record of good standing between a person and their agents.

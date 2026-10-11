@@ -134,3 +134,79 @@ export function verifySignature(a: MeritAttestation): boolean {
     return false;
   }
 }
+
+/* ---------------- Know Your Agent: mutual receipts between a person and their agent ---------------- */
+
+/** A person (principal) authorizes an agent key to act for them, within a scope, until a time. */
+export interface Delegation {
+  schema: 'merit-delegation/0.1';
+  principal: string;   // principal public key
+  agent: string;       // agent public key
+  scope: string;       // e.g. "code:merit-repo", "email:drafts-only"
+  not_after_utc: string;
+  signature: string;   // by principal
+}
+
+/** The agent's signed account of a session it worked in, about the human it worked with. */
+export interface AgentReceipt {
+  schema: 'merit-agent-receipt/0.1';
+  delegation_sig: string;      // binds to the delegation
+  about_certificate?: string;  // the human's session certificate id, if any
+  work_sha256: string;         // hash of what the agent produced
+  conduct: {
+    directed_by_principal: boolean; // the principal gave the instructions
+    within_terms: boolean;          // the session stayed within the agent's terms of use
+    recoveries: number;             // errors raised and recovered from without escalation
+  };
+  created_utc: string;
+  signature: string;           // by agent
+}
+
+/** The principal's countersignature on the agent's work: accepted or rejected. */
+export interface Countersign {
+  schema: 'merit-countersign/0.1';
+  receipt_sig: string;
+  verdict: 'accepted' | 'rejected';
+  created_utc: string;
+  signature: string;           // by principal
+}
+
+const sigOver = (obj: object, privateKey: string) =>
+  bytesToHex(ed25519.sign(utf8ToBytes(canonicalJSON(obj)), hexToBytes(privateKey)));
+const sigOk = (obj: object, signature: string, publicKey: string) => {
+  try { return ed25519.verify(hexToBytes(signature), utf8ToBytes(canonicalJSON(obj)), hexToBytes(publicKey)); } catch { return false; }
+};
+const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+export function delegate(principalKey: string, agentPublicKey: string, scope: string, notAfterUtc: string): Delegation {
+  const body = { schema: 'merit-delegation/0.1' as const, principal: publicKeyOf(principalKey), agent: agentPublicKey, scope, not_after_utc: notAfterUtc };
+  return { ...body, signature: sigOver(body, principalKey) };
+}
+
+export function agentReceipt(agentKey: string, d: Delegation, r: Omit<AgentReceipt, 'schema' | 'delegation_sig' | 'signature' | 'created_utc'> & { created_utc?: string }): AgentReceipt {
+  const body = { schema: 'merit-agent-receipt/0.1' as const, delegation_sig: d.signature, ...r, created_utc: r.created_utc ?? now() };
+  return { ...body, signature: sigOver(body, agentKey) } as AgentReceipt;
+}
+
+export function countersign(principalKey: string, receipt: AgentReceipt, verdict: 'accepted' | 'rejected', createdUtc = now()): Countersign {
+  const body = { schema: 'merit-countersign/0.1' as const, receipt_sig: receipt.signature, verdict, created_utc: createdUtc };
+  return { ...body, signature: sigOver(body, principalKey) };
+}
+
+/** Verify the full triangle: principal → delegation → agent receipt → principal countersign. */
+export function verifyMutual(d: Delegation, r: AgentReceipt, c?: Countersign): { ok: boolean; checks: Record<string, boolean> } {
+  const { signature: ds, ...dBody } = d;
+  const { signature: rs, ...rBody } = r;
+  const checks: Record<string, boolean> = {
+    delegation_signed_by_principal: sigOk(dBody, ds, d.principal),
+    receipt_signed_by_agent: sigOk(rBody, rs, d.agent),
+    receipt_bound_to_delegation: r.delegation_sig === d.signature,
+    within_delegation_window: r.created_utc <= d.not_after_utc,
+  };
+  if (c) {
+    const { signature: cs, ...cBody } = c;
+    checks.countersigned_by_principal = sigOk(cBody, cs, d.principal);
+    checks.countersign_bound_to_receipt = c.receipt_sig === r.signature;
+  }
+  return { ok: Object.values(checks).every(Boolean), checks };
+}
