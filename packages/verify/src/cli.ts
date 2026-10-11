@@ -6,12 +6,14 @@
  *   merit upgrade <cert.json.ots>    upgrades in place once a Bitcoin block has it
  *   merit certify <session.jsonl> [--text doc.txt] [--stamp]   sign a recorded session
  *   merit whoami                     print your public key (creates your key on first run)
+ *   merit key migrate                move a key file into the macOS Keychain (verified), then remove the file
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, unlinkSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { verifyCertificate, stamp, upgrade } from './index';
-import { generateKeyPair, newSessionSecret, buildAttestation } from '@merit/attest';
+import { generateKeyPair, newSessionSecret, buildAttestation, publicKeyOf } from '@merit/attest';
 import { deriveKeyMetrics } from '@merit/capture';
 import type { KeyEvent } from '@merit/spec';
 
@@ -41,20 +43,58 @@ export function privacyLint(keys: unknown[]): string[] {
 }
 const KEYFILE = join(HOME, 'key.json');
 
-/** Self-custody: the key is created on this device and never leaves it. */
+const KC_SERVICE = 'merit-signing-key';
+const KC_ACCOUNT = 'default';
+const onMac = process.platform === 'darwin';
+
+/** macOS Keychain: encrypted at rest, unlocked with your login. */
+function keychainRead(): string | null {
+  if (!onMac) return null;
+  try { return execFileSync('security', ['find-generic-password', '-s', KC_SERVICE, '-a', KC_ACCOUNT, '-w'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
+  catch { return null; }
+}
+function keychainWrite(privateKey: string): boolean {
+  if (!onMac) return false;
+  try { execFileSync('security', ['add-generic-password', '-U', '-s', KC_SERVICE, '-a', KC_ACCOUNT, '-w', privateKey], { stdio: 'ignore' }); return true; }
+  catch { return false; }
+}
+
+/** Self-custody: the key is created on this device and never leaves it. Keychain first, file as fallback. */
 function loadOrCreateKey(): { privateKey: string; publicKey: string } {
   mkdirSync(HOME, { recursive: true, mode: 0o700 });
+  const kc = keychainRead();
+  if (kc) return { privateKey: kc, publicKey: publicKeyOf(kc) };
   if (existsSync(KEYFILE)) return JSON.parse(readFileSync(KEYFILE, 'utf8'));
   const k = generateKeyPair();
-  writeFileSync(KEYFILE, JSON.stringify(k, null, 2));
-  chmodSync(KEYFILE, 0o600);
-  console.error(`merit: created your signing key at ${KEYFILE} (back it up; it is your identity)`);
+  if (keychainWrite(k.privateKey)) {
+    console.error('merit: created your signing key in the macOS Keychain (service "merit-signing-key"). It is your identity.');
+  } else {
+    writeFileSync(KEYFILE, JSON.stringify(k, null, 2));
+    chmodSync(KEYFILE, 0o600);
+    console.error(`merit: created your signing key at ${KEYFILE} (back it up; it is your identity)`);
+  }
   return k;
+}
+
+/** Move an existing key file into the Keychain, verify it round-trips, then remove the file. */
+function migrateKeyToKeychain(): string {
+  if (!onMac) return 'Keychain is macOS-only; key stays in its file.';
+  if (!existsSync(KEYFILE)) return keychainRead() ? 'Key is already in the Keychain.' : 'No key file to migrate.';
+  const k = JSON.parse(readFileSync(KEYFILE, 'utf8'));
+  if (!keychainWrite(k.privateKey)) return 'Could not write to the Keychain; key file left in place.';
+  const back = keychainRead();
+  if (!back || back !== k.privateKey || publicKeyOf(back) !== k.publicKey) return 'Keychain copy did not verify; key file left in place.';
+  unlinkSync(KEYFILE);
+  return `Key moved into the Keychain and verified (public key ${k.publicKey.slice(0, 16)}…). The plain file was removed.`;
 }
 
 async function main() {
   const [cmd, file, ...rest] = process.argv.slice(2);
   const flag = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
+  if (cmd === 'key' && file === 'migrate') {
+    console.log(migrateKeyToKeychain());
+    return;
+  }
   if (cmd === 'whoami') {
     console.log(loadOrCreateKey().publicKey);
     return;
