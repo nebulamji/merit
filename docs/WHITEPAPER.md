@@ -1,6 +1,6 @@
 # Merit: A Peer-to-Peer Electronic Proof-of-Process System
 
-**Kyle Benford** · DRAFT 0.1, 2026-10-10 (private; anchored for priority)
+**Kyle Benford** · Public draft 0.1.1, October 2026 (draft 0.1 timestamped 2026-10-10 and anchored in Bitcoin)
 
 ## Abstract
 
@@ -80,7 +80,7 @@ It is possible to verify a certificate without running any part of the system. A
 
 ## 11. Calculations
 
-We consider an attacker trying to present forged merit. He cannot alter another person's certificates without their key, and he cannot backdate his own: every anchored record is fixed to its block. He can only fabricate new records going forward, under his own key.
+We consider an attacker trying to present forged merit. They cannot alter another person's certificates without that person's key, and they cannot backdate their own: every anchored record is fixed to its block. They can only fabricate new records going forward, under their own key.
 
 Let a counterparty require a history of duration D, with sessions captured across m independent modalities, recognized by r independent counterparties. To fabricate it the attacker must spend at least D in wall-clock time, since anchoring prevents compressing it. If a fabricated session passes a modality's scoring standard with probability p, and the modalities are judged independently and must agree in time, a session passes all of them with probability at most p^m, and k required sessions pass with probability at most p^(k·m). Each recognition requires deceiving or corrupting a counterparty who bears a cost if the claim is later falsified; corrupting r of them costs at least r times the smallest such stake.
 

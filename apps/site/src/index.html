@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Merit</title>
+<meta name="description" content="A book that writes itself from proof of process. Every mark is one certified act of work, drawn from how it was made, in the order it happened.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='none' stroke='%23b0841f' stroke-width='3'/></svg>">
+</head>
+<body>
+<header><a class="word" href="/">artofficial</a><nav><a href="#verify">Inscribe</a><a href="#what">What this is</a><a href="/paper">Paper</a></nav></header>
+
+<div class="stage" id="top"><canvas id="book" aria-label="The Book: a generative drawing of every inscribed certificate, in order"></canvas><div id="tip" class="mono" hidden></div></div>
+<p id="status" class="mono">reading the book…</p>
+<p class="caption">The Book. Each mark is one certified act of work, drawn from how it was made: rewrites loop back over themselves, pauses lift the pen, pasted text runs straight as a ruler, forgiven slips are tied off in gold. Marks arrive in order and are never erased, and every new one turns the whole.</p>
+
+<main>
+<h1>Merit</h1>
+<p class="lede">The output no longer proves the ability. A model can produce the essay, the code, the song. What it cannot produce is your history of making them.</p>
+<p>Merit records how work was done, on your own device: corrections, revisions, pauses, pastes, timing. Never the words. You sign the record with a key only you hold, and its fingerprint is timestamped in Bitcoin so it can never be backdated. What you get is a certificate: evidence of a process, checkable by anyone, owned by you.</p>
+
+<h2 id="verify">Verify, then inscribe</h2>
+<p>Paste or drop a Merit certificate. It is checked here in your browser, and nothing leaves this page unless you inscribe it.</p>
+<div id="drop"><textarea id="cert" class="mono" spellcheck="false" placeholder='{"schema":"merit-attestation/0.1", …}'></textarea></div>
+<div class="row"><label class="file">or choose a file<input id="file" type="file" accept=".json,application/json"></label></div>
+<div id="result" aria-live="polite"></div>
+<div id="consent-row" hidden><label><input id="consent" type="checkbox">Inscribing publishes this certificate (its counts, its id and its public key) in the Book, permanently and in order.</label>
+<div class="row"><button id="inscribe" disabled>Inscribe</button></div></div>
+
+<h2 id="what">What this is</h2>
+<p>A certificate proves who signed a record of a session and that every number in it follows from a committed log. It is evidence of process, not proof of authorship. Its strength is cumulative: more sessions, more ways of capturing them, more people who recognize the work.</p>
+<p>Slips you correct and move past count in your favor. Slips you leave are part of your signature, never a penalty. Nothing is ever deleted: a correction points to what it corrects. A record that can be reset to look clean carries no information.</p>
+<p>The Book is a public register of certificates whose authors chose to inscribe them. Each mark changes the state of the whole: the drawing's turn is read from the latest link of a chain that runs back to Mark 0, the paper itself. Your browser re-reads the chain from the beginning every time this page loads.</p>
+<p>The recorder, the verifier and the specification are being released as open source under Apache-2.0. Read <a href="/paper">the paper</a>.</p>
+</main>
+<footer><span>Evidence of process, not proof of authorship.</span></footer>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -14,5 +14,6 @@
       "@merit/calibrate": ["packages/calibrate/src/index.ts"]
     }
   },
-  "include": ["packages/*/src", "packages/*/test", "apps/*/src"]
+  "include": ["packages/*/src", "packages/*/test", "apps/*/src"],
+  "exclude": ["apps/site/src/worker.ts"]
 }

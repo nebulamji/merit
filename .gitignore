@@ -6,3 +6,6 @@ dist/
 coverage/
 apps/menubar/src-tauri/target/
 apps/menubar/src-tauri/gen/
+apps/site/public/
+apps/site/dist/
+apps/site/.wrangler/
