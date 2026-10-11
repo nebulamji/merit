@@ -8,6 +8,7 @@
   },
   "main": "./src/index.ts",
   "dependencies": {
+    "@napi-rs/keyring": "^2.1.1",
     "opentimestamps": "^0.4.9"
   }
 }

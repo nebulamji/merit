@@ -17,6 +17,7 @@
   },
   "packageManager": "pnpm@9.14.4",
   "dependencies": {
+    "@napi-rs/keyring": "^2.1.1",
     "@noble/curves": "^1.6",
     "@noble/hashes": "^1.5"
   }

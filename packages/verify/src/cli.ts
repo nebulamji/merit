@@ -6,10 +6,10 @@
  *   merit upgrade <cert.json.ots>    upgrades in place once a Bitcoin block has it
  *   merit certify <session.jsonl> [--text doc.txt] [--stamp]   sign a recorded session
  *   merit whoami                     print your public key (creates your key on first run)
- *   merit key migrate                move a key file into the macOS Keychain (verified), then remove the file
+ *   merit key migrate                move a key file into the system keychain (verified), then remove the file
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, unlinkSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { Entry } from '@napi-rs/keyring';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { verifyCertificate, stamp, upgrade } from './index';
@@ -45,18 +45,17 @@ const KEYFILE = join(HOME, 'key.json');
 
 const KC_SERVICE = 'merit-signing-key';
 const KC_ACCOUNT = 'default';
-const onMac = process.platform === 'darwin';
 
-/** macOS Keychain: encrypted at rest, unlocked with your login. */
+/**
+ * The operating system's own secret store, on every platform:
+ * macOS Keychain, Windows Credential Manager, Linux Secret Service (GNOME Keyring / KWallet).
+ * Encrypted at rest and unlocked with your login.
+ */
 function keychainRead(): string | null {
-  if (!onMac) return null;
-  try { return execFileSync('security', ['find-generic-password', '-s', KC_SERVICE, '-a', KC_ACCOUNT, '-w'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
-  catch { return null; }
+  try { return new Entry(KC_SERVICE, KC_ACCOUNT).getPassword() ?? null; } catch { return null; }
 }
 function keychainWrite(privateKey: string): boolean {
-  if (!onMac) return false;
-  try { execFileSync('security', ['add-generic-password', '-U', '-s', KC_SERVICE, '-a', KC_ACCOUNT, '-w', privateKey], { stdio: 'ignore' }); return true; }
-  catch { return false; }
+  try { new Entry(KC_SERVICE, KC_ACCOUNT).setPassword(privateKey); return true; } catch { return false; }
 }
 
 /** Self-custody: the key is created on this device and never leaves it. Keychain first, file as fallback. */
@@ -67,7 +66,7 @@ function loadOrCreateKey(): { privateKey: string; publicKey: string } {
   if (existsSync(KEYFILE)) return JSON.parse(readFileSync(KEYFILE, 'utf8'));
   const k = generateKeyPair();
   if (keychainWrite(k.privateKey)) {
-    console.error('merit: created your signing key in the macOS Keychain (service "merit-signing-key"). It is your identity.');
+    console.error('merit: created your signing key in your system keychain (service "merit-signing-key"). It is your identity.');
   } else {
     writeFileSync(KEYFILE, JSON.stringify(k, null, 2));
     chmodSync(KEYFILE, 0o600);
@@ -78,7 +77,6 @@ function loadOrCreateKey(): { privateKey: string; publicKey: string } {
 
 /** Move an existing key file into the Keychain, verify it round-trips, then remove the file. */
 function migrateKeyToKeychain(): string {
-  if (!onMac) return 'Keychain is macOS-only; key stays in its file.';
   if (!existsSync(KEYFILE)) return keychainRead() ? 'Key is already in the Keychain.' : 'No key file to migrate.';
   const k = JSON.parse(readFileSync(KEYFILE, 'utf8'));
   if (!keychainWrite(k.privateKey)) return 'Could not write to the Keychain; key file left in place.';

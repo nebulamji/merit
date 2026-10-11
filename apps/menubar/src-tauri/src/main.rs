@@ -36,6 +36,7 @@ struct Mods {
 }
 
 struct Session {
+    allow: Vec<String>,
     path: PathBuf,
     started: Instant,
     seq: u64,
@@ -50,6 +51,40 @@ struct State {
 }
 
 type Shared = Arc<Mutex<State>>;
+
+/// Apps Merit measures in by default. Everything else is ignored, so password managers, banking sites
+/// and anything sensitive are never measured. Edit ~/.merit/apps.json to change the list.
+fn default_apps() -> Vec<String> {
+    let mut v: Vec<&str> = vec![
+        "Terminal", "iTerm2", "Warp", "WezTerm", "Alacritty", "kitty", "Ghostty",
+        "Code", "Visual Studio Code", "Cursor", "Zed", "Sublime Text",
+        "Obsidian", "Notes", "TextEdit", "Pages", "Microsoft Word", "WINWORD", "Notion",
+        "WindowsTerminal", "Windows Terminal", "powershell", "cmd", "gnome-terminal", "konsole",
+    ];
+    // On macOS, password fields put the system in Secure Event Input, which Merit honors, so browsers
+    // can be included. On Windows/Linux there is no equivalent signal, so browsers stay off by default.
+    if cfg!(target_os = "macos") {
+        v.extend(["Safari", "Google Chrome", "Arc", "Firefox", "Brave Browser"]);
+    }
+    v.into_iter().map(String::from).collect()
+}
+
+fn allowed_apps() -> Vec<String> {
+    let path = merit_home().join("apps.json");
+    if let Ok(s) = fs::read_to_string(&path) {
+        if let Ok(list) = serde_json::from_str::<Vec<String>>(&s) {
+            return list;
+        }
+    }
+    let list = default_apps();
+    let _ = fs::write(&path, serde_json::to_string_pretty(&list).unwrap_or_default());
+    list
+}
+
+/// The app in front right now (macOS, Windows, Linux/X11).
+fn frontmost_app() -> Option<String> {
+    active_win_pos_rs::get_active_window().ok().map(|w| w.app_name)
+}
 
 fn merit_home() -> PathBuf {
     let p = dirs::home_dir().unwrap_or_default().join(".merit");
@@ -125,6 +160,12 @@ fn start_listener(state: Shared) {
                     }
                     let class = classify(k, &st.mods);
                     if let (Some(class), Some(s)) = (class, st.session.as_mut()) {
+                        // Measure only inside apps the person chose.
+                        let app = frontmost_app();
+                        let allowed = app.as_deref().map(|a| s.allow.iter().any(|x| a.eq_ignore_ascii_case(x) || a.to_lowercase().contains(&x.to_lowercase()))).unwrap_or(false);
+                        if !allowed {
+                            return;
+                        }
                         // We never read the clipboard: a paste is counted, its contents and length are not read.
                         let e = KeyEvent { seq: s.seq, t: s.started.elapsed().as_millis() as u64, k: class, n: None };
                         s.seq += 1;
@@ -160,7 +201,7 @@ fn start_session(state: &Shared) -> String {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
             }
-            st.session = Some(Session { path, started: Instant::now(), seq: 0, file });
+            st.session = Some(Session { allow: allowed_apps(), path, started: Instant::now(), seq: 0, file });
             "Measuring integrity (key types only, never letters)".into()
         }
         Err(e) => format!("Could not start: {e}"),
