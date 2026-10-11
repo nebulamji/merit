@@ -105,3 +105,4 @@ export async function verifyCertificate(args: {
     : 'INVALID. See checks.';
   return { id: cert.id, ok: core, checks, anchor, summary };
 }
+export * from './ots';

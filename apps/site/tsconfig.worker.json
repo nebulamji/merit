@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": { "lib": ["es2022"], "types": [], "noEmit": true, "baseUrl": "../.." },
-  "include": ["src/worker.ts", "src/shape.ts", "worker-configuration.d.ts"],
+  "include": ["src/worker.ts", "src/shape.ts", "src/qualify.ts", "worker-configuration.d.ts"],
   "exclude": []
 }

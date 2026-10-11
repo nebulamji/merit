@@ -47,3 +47,8 @@ article table { border-collapse: collapse; width: 100%; font-size: 16px; margin:
 article th, article td { text-align: left; border-bottom: 1px solid var(--rule); padding: 6px 8px 6px 0; }
 article ol { padding-left: 22px; font-size: 16px; }
 @media (max-width: 560px) { body { font-size: 17px; } h1 { font-size: 34px; margin-top: 48px; } header nav a { margin-left: 12px; } .lede { font-size: 19px; } }
+#checks { list-style: none; padding: 0; margin: 8px 0 0; font-size: 16px; }
+#checks li { padding: 2px 0; }
+#checks li[data-state="ok"] { color: var(--ok); }
+#checks li[data-state="bad"] { color: var(--bad); }
+#checks li[data-state="wait"] { color: var(--muted); }

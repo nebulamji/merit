@@ -210,3 +210,28 @@ export function verifyMutual(d: Delegation, r: AgentReceipt, c?: Countersign): {
   }
   return { ok: Object.values(checks).every(Boolean), checks };
 }
+
+/**
+ * Recognition: one person signs that they recognize another person's certificate.
+ * It is the step from claim to evidence (whitepaper §5). A recognition names the certificate by id,
+ * so it cannot be moved to a different certificate.
+ */
+export interface Recognition {
+  schema: 'merit-recognition/0.1';
+  certificate_id: string;
+  recognizer: string;      // recognizer's public key
+  created_utc: string;
+  signature: string;
+}
+
+export function recognize(recognizerKey: string, certificateId: string, createdUtc = now()): Recognition {
+  const body = { schema: 'merit-recognition/0.1' as const, certificate_id: certificateId, recognizer: publicKeyOf(recognizerKey), created_utc: createdUtc };
+  return { ...body, signature: sigOver(body, recognizerKey) };
+}
+
+export function verifyRecognition(r: Recognition, certificateId: string): boolean {
+  try {
+    const { signature, ...body } = r;
+    return r.schema === 'merit-recognition/0.1' && r.certificate_id === certificateId && sigOk(body, signature, r.recognizer);
+  } catch { return false; }
+}

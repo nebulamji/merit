@@ -15,5 +15,5 @@ export default defineConfig({
       opentimestamps: p('./packages/verify/node_modules/opentimestamps/index.js'),
     },
   },
-  test: { include: ['packages/*/test/**/*.test.ts'] },
+  test: { include: ['packages/*/test/**/*.test.ts', 'apps/*/test/**/*.test.ts'] },
 });

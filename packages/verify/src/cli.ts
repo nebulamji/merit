@@ -8,6 +8,7 @@
  *   merit whoami                     print your public key (creates your key on first run)
  *   merit key migrate                move a key file into the system keychain (verified), then remove the file
  *   merit label <session.jsonl> composed|retyped|ai-retyped --participant <id> [--task t] [--manifest m]
+ *   merit recognize <cert.json>       sign that you recognize someone's certificate (writes <cert>.recognition.json)
  *   merit calibrate [manifest.jsonl] [--threshold 0.5]   error rates of the active standard on labeled sessions
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, unlinkSync } from 'node:fs';
@@ -17,7 +18,8 @@ import { join, dirname, resolve } from 'node:path';
 import { appendFileSync } from 'node:fs';
 import { calibrate, reportMarkdown, CAL_LABELS, type CalLabel, type Sample } from '@merit/calibrate';
 import { verifyCertificate, stamp, upgrade } from './index';
-import { generateKeyPair, newSessionSecret, buildAttestation, publicKeyOf } from '@merit/attest';
+import { generateKeyPair, newSessionSecret, buildAttestation, publicKeyOf, recognize, verifySignature, bodyOf } from '@merit/attest';
+import { attestationId } from '@merit/spec';
 import { deriveKeyMetrics } from '@merit/capture';
 import type { KeyEvent } from '@merit/spec';
 
@@ -99,6 +101,17 @@ async function main() {
   }
   if (cmd === 'whoami') {
     console.log(loadOrCreateKey().publicKey);
+    return;
+  }
+  if (cmd === 'recognize') {
+    if (!file) { console.log('usage: merit recognize <cert.json>'); process.exit(2); }
+    const cert = JSON.parse(readFileSync(file, 'utf8'));
+    if (cert.id !== attestationId(bodyOf(cert)) || !verifySignature(cert)) { console.log('refused: that certificate does not verify'); process.exit(1); }
+    const key = loadOrCreateKey();
+    if (publicKeyOf(key.privateKey) === cert.author.public_key) { console.log('refused: you cannot recognize your own certificate'); process.exit(1); }
+    const out = file.replace(/\.cert\.json$|\.json$/, '') + '.recognition.json';
+    writeFileSync(out, JSON.stringify(recognize(key.privateKey, cert.id), null, 2));
+    console.log(`recognized ${cert.id} -> ${out}`);
     return;
   }
   if (cmd === 'calibrate') {
