@@ -5,18 +5,19 @@
 // Requires macOS Input Monitoring / Accessibility permission for this app.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod core;
+
 use rdev::{listen, EventType, Key};
 use serde::Serialize;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
 
 #[derive(Serialize)]
@@ -47,7 +48,7 @@ struct Session {
 struct State {
     session: Option<Session>,
     mods: Mods,
-    last_cert: Option<PathBuf>,
+    to_sign: Vec<String>,
 }
 
 type Shared = Arc<Mutex<State>>;
@@ -87,7 +88,7 @@ fn frontmost_app() -> Option<String> {
 }
 
 fn merit_home() -> PathBuf {
-    let p = dirs::home_dir().unwrap_or_default().join(".merit");
+    let p = core::merit_home();
     let _ = fs::create_dir_all(p.join("sessions"));
     p
 }
@@ -208,23 +209,14 @@ fn start_session(state: &Shared) -> String {
     }
 }
 
-/// Stop recording, then certify + anchor via the merit CLI (MERIT_CLI or ~/merit/dist/merit-cli.cjs).
-fn stop_and_certify(state: &Shared) -> String {
+/// Stop recording and hand the session to the dashboard, which builds the certificate with the shared
+/// TypeScript code and asks the native side to sign it. No Node, no external tools.
+fn stop_session(state: &Shared) -> Result<(String, u64), String> {
     let session = state.lock().unwrap().session.take();
-    let Some(s) = session else { return "Not measuring".into() };
+    let Some(s) = session else { return Err("Not measuring".into()) };
     drop(s.file);
-    let cli = std::env::var("MERIT_CLI")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join("merit/dist/merit-cli.cjs"));
-    let out = Command::new("node").arg(&cli).arg("certify").arg(&s.path).arg("--stamp").output();
-    match out {
-        Ok(o) if o.status.success() => {
-            state.lock().unwrap().last_cert = Some(PathBuf::from(format!("{}", s.path.display()).replace(".jsonl", ".cert.json")));
-            format!("Signed ({} keystrokes). Anchoring to Bitcoin…", s.seq)
-        }
-        Ok(o) => format!("Certify failed: {}", String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("")),
-        Err(e) => format!("Could not run merit CLI: {e}"),
-    }
+    let name = s.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok((name, s.seq))
 }
 
 #[derive(Serialize)]
@@ -253,6 +245,17 @@ fn list_sessions() -> Vec<SessionSummary> {
     out
 }
 
+/// Sessions waiting for the dashboard to sign them. Draining a queue avoids racing a window that is still loading.
+#[tauri::command]
+fn take_to_sign(state: tauri::State<Shared>) -> Vec<String> {
+    std::mem::take(&mut state.lock().unwrap().to_sign)
+}
+
+#[tauri::command]
+fn log(msg: String) {
+    eprintln!("merit dashboard: {msg}");
+}
+
 #[tauri::command]
 fn recording_status(state: tauri::State<Shared>) -> bool {
     state.lock().unwrap().session.is_some()
@@ -276,7 +279,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(state.clone())
-        .invoke_handler(tauri::generate_handler![list_sessions, recording_status])
+        .invoke_handler(tauri::generate_handler![list_sessions, recording_status, take_to_sign, log, core::public_key, core::sign, core::read_file, core::write_file, core::list_files, core::http])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -305,18 +308,36 @@ fn main() {
                         }
                     }
                     "stop" => {
-                        let msg = stop_and_certify(&st);
+                        let msg = match stop_session(&st) {
+                            Ok((name, n)) => {
+                                st.lock().unwrap().to_sign.push(name);
+                                open_dashboard(app);
+                                let _ = app.emit("sign-queued", ());
+                                format!("Signing ({n} keystrokes)…")
+                            }
+                            Err(m) => m,
+                        };
                         let _ = status_item.set_text(&msg);
                         if let Some(tray) = app.tray_by_id("merit") {
                             if let Ok(img) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) { let _ = tray.set_icon(Some(img)); let _ = tray.set_icon_as_template(true); }
                         }
-                        open_dashboard(app);
                     }
                     "dash" => open_dashboard(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
+
+            // `merit-menubar --sign <session.jsonl>`: sign a recorded session through the same path as "Stop & sign".
+            let args: Vec<String> = std::env::args().collect();
+            if let Some(i) = args.iter().position(|a| a == "--sign") {
+                if let Some(name) = args.get(i + 1).and_then(|f| std::path::Path::new(f).file_name()).map(|n| n.to_string_lossy().into_owned()) {
+                    state.lock().unwrap().to_sign.push(name);
+                    open_dashboard(app.handle());
+                }
+            } else if args.iter().any(|a| a == "--dashboard") {
+                open_dashboard(app.handle());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -3,16 +3,35 @@
   "productName": "Merit",
   "version": "0.1.0",
   "identifier": "dev.merit.harness",
-  "build": { "frontendDist": "../ui" },
+  "build": {
+    "frontendDist": "../ui",
+    "beforeBuildCommand": "pnpm -w app:ui"
+  },
   "app": {
     "windows": [],
     "withGlobalTauri": true,
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/icon.png"],
-    "macOS": { "minimumSystemVersion": "11.0" }
+    "targets": [
+      "app",
+      "dmg",
+      "msi",
+      "nsis",
+      "deb",
+      "appimage"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "category": "Productivity",
+    "shortDescription": "Evidence of how you work",
+    "copyright": "Apache-2.0"
   }
 }

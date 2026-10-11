@@ -108,18 +108,28 @@ export function buildAttestation(args: {
   surface: string;
   createdUtc?: string;
 }): MeritAttestation {
-  const body: AttestationBody = {
+  const body = attestationBody({ ...args, publicKey: publicKeyOf(args.privateKey) });
+  const signature = bytesToHex(ed25519.sign(signingPayload(body), hexToBytes(args.privateKey)));
+  return { ...body, id: attestationId(body), signature };
+}
+
+/** The unsigned body of a certificate. Signers that hold the key elsewhere (a keychain, a native side) sign signingPayload(body). */
+export function attestationBody(args: { events: SeqEvent[]; finalText: string; metrics: Metrics; sessionSecret: string; publicKey: string; surface: string; createdUtc?: string }): AttestationBody {
+  return {
     schema: SCHEMA,
     doc_sha256: sha256Hex(args.finalText),
     events_root: merkleRoot(args.events, args.sessionSecret),
     event_count: args.events.length,
     metrics: args.metrics,
-    author: { alg: 'ed25519', public_key: publicKeyOf(args.privateKey) },
+    author: { alg: 'ed25519', public_key: args.publicKey },
     created_utc: args.createdUtc ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     surface: args.surface,
   };
-  const signature = bytesToHex(ed25519.sign(signingPayload(body), hexToBytes(args.privateKey)));
-  return { ...body, id: attestationId(body), signature };
+}
+
+/** Bytes a recognizer signs: lets a key held elsewhere produce a recognition. */
+export function recognitionBody(recognizerPublicKey: string, certificateId: string, createdUtc = now()) {
+  return { schema: 'merit-recognition/0.1' as const, certificate_id: certificateId, recognizer: recognizerPublicKey, created_utc: createdUtc };
 }
 
 export function bodyOf(a: MeritAttestation): AttestationBody {

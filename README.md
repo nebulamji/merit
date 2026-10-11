@@ -20,9 +20,19 @@ Anti-cheating tools ask *"did a human write this?"* about one document. Merit ke
 | `packages/agentauth` | Web Bot Auth (RFC 9421) request signing for agent keys — passes the draft's official Ed25519 vectors — plus a `Merit-Delegation` header binding the agent to its principal |
 | `packages/calibrate` | Error rates for a scoring standard on labeled composing / retyping / AI-retyping sessions, with Wilson intervals; refuses accuracy claims below the minimums (`docs/CALIBRATION.md`) |
 | `packages/term` | `merit-term rec -- <cmd>`: record key classes typed into any terminal program (e.g. an AI coding agent) |
-| `apps/menubar` | macOS menu-bar app: Start session · Stop & certify · Open dashboard |
+| `apps/menubar` | Desktop menu-bar app (macOS, Windows, Linux). Measure · Stop & sign · dashboard that signs with your keychain key, anchors in Bitcoin, upgrades proofs, recognizes others and inscribes in the Book. No Node required. |
+| `apps/site` | merit.artofficial.computer: the Book, the in-browser verifier, the paper |
 
-## Quick start
+## Use it
+
+1. Install the app (`pnpm app:build`, or the installers built by CI). On macOS, allow it under *Privacy & Security → Input Monitoring*.
+2. Menu bar → **Measure integrity**, write in any app on your list (`~/.merit/apps.json`), then **Stop & sign**.
+3. The dashboard signs the session with your key (Keychain / Credential Manager / Secret Service, never shown to the page) and submits it to Bitcoin. A few hours later it confirms on its own.
+4. **Inscribe** it in the Book at merit.artofficial.computer, with a recognition from someone already there, or by time (three anchored certificates over a week).
+
+Isolated mode for tests or portable use: `MERIT_HOME=/some/dir merit-menubar` never touches the system keychain.
+
+## Quick start (developers)
 
 ```bash
 pnpm install && pnpm test
@@ -35,7 +45,7 @@ node dist/merit-cli.cjs verify ~/.merit/sessions/<session>.cert.json
 node dist/merit-cli.cjs upgrade ~/.merit/sessions/<session>.cert.json.ots
 ```
 
-Build the CLI bundle: `node node_modules/.pnpm/esbuild@*/node_modules/esbuild/bin/esbuild packages/verify/src/cli.ts --bundle --platform=node --format=cjs --outfile=dist/merit-cli.cjs` (see `docs/SPEC.md`).
+Build the CLI bundle: `pnpm exec esbuild packages/verify/src/cli.ts --bundle --platform=node --format=cjs --external:@napi-rs/keyring --outfile=dist/merit-cli.cjs`.
 
 ## What a certificate claims, and doesn't
 

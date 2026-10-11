@@ -103,3 +103,117 @@ export async function confirmBitcoin(digestHex: string, ots: Uint8Array, lookup:
   }
   return { ok: false, reason: 'Bitcoin attestation does not match the block' };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Full proof trees: build, merge, serialize, stamp and upgrade. Network access is injected so the
+// same code runs in Node, a browser, or a desktop app that routes HTTP through its native side.
+
+type OtsOp = { tag: number; arg?: Uint8Array };
+export interface OtsTree { msg: Uint8Array; attestations: { tag: Uint8Array; payload: Uint8Array }[]; ops: { op: OtsOp; next: OtsTree }[] }
+
+const BINARY = new Set([0xf0, 0xf1]);
+function applyOp(o: OtsOp, msg: Uint8Array): Uint8Array {
+  const r = new Reader(new Uint8Array(0));
+  if (BINARY.has(o.tag)) return o.tag === 0xf0 ? cat(msg, o.arg!) : cat(o.arg!, msg);
+  return op(o.tag, r, msg);
+}
+
+function parseTree(r: Reader, msg: Uint8Array, depth = 0): OtsTree {
+  if (depth > 256) throw new Error('proof too deep');
+  const node: OtsTree = { msg, attestations: [], ops: [] };
+  const one = (tag: number) => {
+    if (tag === 0x00) { node.attestations.push({ tag: r.bytes(8), payload: r.varbytes() }); return; }
+    const o: OtsOp = { tag, arg: BINARY.has(tag) ? r.varbytes() : undefined };
+    node.ops.push({ op: o, next: parseTree(r, applyOp(o, msg), depth + 1) });
+  };
+  let tag = r.byte();
+  while (tag === 0xff) { one(r.byte()); tag = r.byte(); }
+  one(tag);
+  return node;
+}
+
+class Writer {
+  parts: number[] = [];
+  byte(b: number) { this.parts.push(b); }
+  bytes(b: Uint8Array) { for (const x of b) this.parts.push(x); }
+  varuint(n: number) { do { let b = n % 128; n = Math.floor(n / 128); if (n > 0) b |= 0x80; this.parts.push(b); } while (n > 0); }
+  varbytes(b: Uint8Array) { this.varuint(b.length); this.bytes(b); }
+  out() { return Uint8Array.from(this.parts); }
+}
+
+function writeTree(w: Writer, t: OtsTree) {
+  const items: (() => void)[] = [
+    ...t.attestations.map((a) => () => { w.byte(0x00); w.bytes(a.tag); w.varbytes(a.payload); }),
+    ...t.ops.map(({ op: o, next }) => () => { w.byte(o.tag); if (o.arg) w.varbytes(o.arg); writeTree(w, next); }),
+  ];
+  if (!items.length) throw new Error('empty proof node');
+  items.forEach((write, i) => { if (i < items.length - 1) w.byte(0xff); write(); });
+}
+
+export function readOtsTree(bytes: Uint8Array): { digest: Uint8Array; tree: OtsTree } {
+  const r = new Reader(bytes);
+  const magic = r.bytes(MAGIC.length);
+  if (magic.some((x, i) => x !== MAGIC[i])) throw new Error('not an OpenTimestamps proof');
+  if (r.varuint() !== 1) throw new Error('unsupported proof version');
+  if (r.byte() !== 0x08) throw new Error('only sha256 file digests are supported');
+  const digest = r.bytes(32);
+  return { digest, tree: parseTree(r, digest) };
+}
+
+export function writeOtsTree(digest: Uint8Array, tree: OtsTree): Uint8Array {
+  const w = new Writer();
+  w.bytes(MAGIC); w.varuint(1); w.byte(0x08); w.bytes(digest); writeTree(w, tree);
+  return w.out();
+}
+
+function merge(into: OtsTree, from: OtsTree) {
+  for (const a of from.attestations) if (!into.attestations.some((b) => bytesToHex(b.tag) === bytesToHex(a.tag) && bytesToHex(b.payload) === bytesToHex(a.payload))) into.attestations.push(a);
+  for (const o of from.ops) {
+    const same = into.ops.find((p) => p.op.tag === o.op.tag && bytesToHex(p.op.arg ?? new Uint8Array()) === bytesToHex(o.op.arg ?? new Uint8Array()));
+    if (same) merge(same.next, o.next); else into.ops.push(o);
+  }
+}
+
+export const CALENDARS = ['https://a.pool.opentimestamps.org', 'https://b.pool.opentimestamps.org', 'https://a.pool.eternitywall.com', 'https://ots.btc.catallaxy.com'];
+export type Post = (url: string, body: Uint8Array) => Promise<Uint8Array | null>;
+export type Get = (url: string) => Promise<Uint8Array | null>;
+
+/** Submit a 32-byte digest to the public calendars. A random nonce keeps the digest itself private. */
+export async function stampDigest(digest: Uint8Array, post: Post, nonce: Uint8Array, calendars = CALENDARS): Promise<Uint8Array> {
+  const withNonce = cat(digest, nonce);
+  const commitment = sha256(withNonce);
+  const top: OtsTree = { msg: commitment, attestations: [], ops: [] };
+  const answers = await Promise.all(calendars.map(async (c) => { try { return await post(`${c}/digest`, commitment); } catch { return null; } }));
+  let got = 0;
+  for (const a of answers) {
+    if (!a) continue;
+    try { merge(top, parseTree(new Reader(a), commitment)); got++; } catch { /* bad answer */ }
+  }
+  if (!got) throw new Error('no timestamp calendar answered');
+  const root: OtsTree = { msg: digest, attestations: [], ops: [{ op: { tag: 0xf0, arg: nonce }, next: { msg: withNonce, attestations: [], ops: [{ op: { tag: 0x08 }, next: top }] } }] };
+  return writeOtsTree(digest, root);
+}
+
+/** Ask each calendar a pending attestation names for the finished path. Returns the new proof and whether it changed. */
+export async function upgradeOts(bytes: Uint8Array, get: Get): Promise<{ ots: Uint8Array; changed: boolean }> {
+  const { digest, tree } = readOtsTree(bytes);
+  let changed = false;
+  const visit = async (t: OtsTree) => {
+    for (const a of [...t.attestations]) {
+      if (bytesToHex(a.tag) !== PENDING) continue;
+      const uri = new TextDecoder().decode(new Reader(a.payload).varbytes());
+      if (!/^https:\/\/[A-Za-z0-9.-]+(:\d+)?$/.test(uri)) continue;
+      try {
+        const body = await get(`${uri}/timestamp/${bytesToHex(t.msg)}`);
+        if (!body) continue;
+        const up = parseTree(new Reader(body), t.msg);
+        const before = bytesToHex(writeOtsTree(digest, tree));
+        merge(t, up);
+        if (bytesToHex(writeOtsTree(digest, tree)) !== before) changed = true;
+      } catch { /* not ready */ }
+    }
+    for (const o of t.ops) await visit(o.next);
+  };
+  await visit(tree);
+  return { ots: writeOtsTree(digest, tree), changed };
+}

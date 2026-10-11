@@ -2,3 +2,4 @@ export { replay, deriveMetrics, deriveKeyMetrics, styleOfKeys, rhythmOfKeys, fin
 export { recordTextarea, diff } from './recorder';
 export type { Recorder } from './recorder';
 export type { Replay } from './derive';
+export * from './lint';

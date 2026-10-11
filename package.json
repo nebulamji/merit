@@ -10,10 +10,13 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "site:build": "node apps/site/build.mjs",
-    "site:deploy": "node apps/site/build.mjs && cd apps/site && wrangler deploy"
+    "site:deploy": "node apps/site/build.mjs && cd apps/site && wrangler deploy",
+    "app:ui": "esbuild apps/menubar/src/dashboard.ts --bundle --format=iife --platform=browser --tsconfig=tsconfig.json --outfile=apps/menubar/ui/dashboard.js --log-level=warning",
+    "app:build": "pnpm app:ui && pnpm --filter @merit/menubar tauri build"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "esbuild": "0.24.0",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
   },
