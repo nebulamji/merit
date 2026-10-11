@@ -36,6 +36,11 @@
   <h2>Your sessions</h2>
   <div id="list"><p class="sub">Loading…</p></div>
   <details>
+    <summary>Your wallet (get paid, own your marks)</summary>
+    <p class="sub">Half of every Portfolio sale goes to the people whose marks are in it. Set the wallet that receives yours; your Merit key signs it. The same wallet can hold your marks (they can never be sold).</p>
+    <div class="row"><input id="wallet" placeholder="0x…" style="flex:1;font:12px ui-monospace,Menlo,monospace;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--fg)"><button id="set-wallet">Set wallet</button></div>
+  </details>
+  <details>
     <summary>Recognize someone, or add a recognition you received</summary>
     <p class="sub">Paste someone's certificate to sign that you recognize it, or paste a recognition someone gave you. See <a href="https://merit.artofficial.computer/#rules" target="_blank">the Book's rules</a>.</p>
     <textarea id="paste" spellcheck="false"></textarea>

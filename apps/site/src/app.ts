@@ -1,6 +1,7 @@
 import { attestationId, sha256Hex } from '@merit/spec';
 import { verifySignature, bodyOf } from '@merit/attest';
 import { shapeOf, type Shape } from './shape';
+import { layoutBook, type Drawn } from './art';
 import { FOUNDER, EARN, workFloor, anchorClaim, recognitionClaim, anchorDigestHex } from './qualify';
 import { readOts } from '../../../packages/verify/src/ots';
 import { blockMerkleRoot } from '../../../packages/verify/src/ots';
@@ -10,54 +11,6 @@ interface Book { genesis: string; head: string; marks: Mark[]; founder?: string 
 
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const GOLDEN = Math.PI * (3 - Math.sqrt(5));
-
-/** Deterministic randomness from a hex id: the same certificate always draws the same mark. */
-function prng(hex: string) {
-  let a = (parseInt(hex.slice(0, 8), 16) ^ parseInt(hex.slice(8, 16), 16)) >>> 0;
-  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
-
-type Pt = [number, number];
-interface Stroke { pts: Pt[]; kind: 'hand' | 'ruler' }
-interface Drawn { strokes: Stroke[]; knots: Pt[]; at: Pt }
-
-/**
- * A mark is the walk of a hand. Typing moves the pen forward; deletions walk it back over itself;
- * pauses lift it; pasted text is a ruled line with no hand in it; forgiven slips are tied off in gold.
- */
-function drawMark(id: string, s: Shape, at: Pt, size: number): Drawn {
-  const r = prng(id);
-  const steps = Math.min(90, 6 + Math.round(Math.sqrt(s.typed) * 1.6));
-  const backRate = Math.min(0.6, (s.deletions + s.word_changes * 2) / Math.max(1, s.typed));
-  const lifts = Math.min(steps - 1, s.pauses);
-  const liftAt = new Set<number>(); while (liftAt.size < lifts) liftAt.add(1 + Math.floor(r() * (steps - 1)));
-  const step = size / Math.sqrt(steps + 4);
-  let h = r() * Math.PI * 2, p: Pt = [at[0], at[1]];
-  const strokes: Stroke[] = []; let cur: Pt[] = [p]; const knots: Pt[] = [];
-  let healed = 0;
-  for (let i = 0; i < steps; i++) {
-    if (liftAt.has(i)) { strokes.push({ pts: cur, kind: 'hand' }); h += (r() - 0.5) * 1.2; p = [p[0] + Math.cos(h) * step * 0.6, p[1] + Math.sin(h) * step * 0.6]; cur = [p]; }
-    h += (r() - 0.5) * 0.9;
-    p = [p[0] + Math.cos(h) * step, p[1] + Math.sin(h) * step]; cur.push(p);
-    if (r() < backRate && cur.length > 2) {
-      const back = 1 + Math.floor(r() * Math.min(3, cur.length - 1));
-      for (let k = 1; k <= back; k++) { const q = cur[cur.length - 1 - k * 2] ?? cur[0]; p = [q[0] + (r() - 0.5) * step * 0.25, q[1] + (r() - 0.5) * step * 0.25]; cur.push(p); }
-      if (healed < s.forgiveness && r() < 0.7) { knots.push(p); healed++; }
-    }
-  }
-  strokes.push({ pts: cur, kind: 'hand' });
-  const share = s.pasted / Math.max(1, s.typed + s.pasted);
-  if (share > 0.02) { const L = size * 1.4 * share; strokes.push({ pts: [p, [p[0] + Math.cos(h) * L, p[1] + Math.sin(h) * L]], kind: 'ruler' }); }
-  while (healed < Math.min(s.forgiveness, 6)) { knots.push(cur[Math.floor(r() * cur.length)]); healed++; }
-  // A hand wanders; keep each mark within reach of its place in the Book.
-  const all = [...strokes.flatMap((x) => x.pts), ...knots];
-  const reach = Math.max(...all.map(([x, y]) => Math.hypot(x - at[0], y - at[1])));
-  const k = reach > size * 1.25 ? (size * 1.25) / reach : 1;
-  const fit = ([x, y]: Pt): Pt => [at[0] + (x - at[0]) * k, at[1] + (y - at[1]) * k];
-  return { strokes: strokes.map((x) => ({ ...x, pts: x.pts.map(fit) })), knots: knots.map(fit), at };
-}
-
 function css(name: string) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
 class BookView {
@@ -66,11 +19,9 @@ class BookView {
   layout() {
     const dpr = devicePixelRatio || 1; const rect = this.canvas.getBoundingClientRect();
     this.w = rect.width; this.hgt = rect.height; this.canvas.width = this.w * dpr; this.canvas.height = this.hgt * dpr; this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const head = this.book.head; this.spin = (parseInt(head.slice(0, 6), 16) / 0xffffff) * Math.PI * 2;
-    const n = this.book.marks.length, R = Math.min(this.w, this.hgt) * 0.4;
-    const ring = (i: number) => 0.16 + 0.84 * Math.sqrt(i / Math.max(8, n));
-    const size = Math.max(9, Math.min(90, (R / Math.sqrt(Math.max(4, n))) * 1.6));
-    this.drawn = this.book.marks.map((m, i) => { const a = (i + 1) * GOLDEN; const rr = R * ring(i + 1); return { mark: m, d: drawMark(m.id, m.shape, [Math.cos(a) * rr, Math.sin(a) * rr], size) }; });
+    const L = layoutBook(this.book.marks, this.book.head, this.w, this.hgt);
+    this.spin = L.spin;
+    this.drawn = this.book.marks.map((m, i) => ({ mark: m, d: L.drawn[i] }));
   }
   add(m: Mark) { this.book.marks.push(m); this.book.head = m.chain; this.layout(); this.t0 = performance.now() - this.revealMs(this.book.marks.length - 1); }
   revealMs(i: number) { const per = Math.min(320, 6000 / Math.max(1, this.book.marks.length)); return 700 + i * per; }

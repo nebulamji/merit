@@ -10,9 +10,15 @@ mkdirSync(site + 'public', { recursive: true }); mkdirSync(site + 'dist', { recu
 const html = execFileSync('npx', ['-y', 'marked@14.1.4', '--gfm'], { input: paperMd }).toString();
 writeFileSync(site + 'public/paper.html', readFileSync(site + 'src/paper.html', 'utf8').replace('<!--PAPER-->', html).replace('<!--GENESIS-->', genesis));
 copyFileSync(site + 'src/index.html', site + 'public/index.html');
+copyFileSync(site + 'src/collect.html', site + 'public/collect.html');
+copyFileSync(site + 'src/deploy.html', site + 'public/deploy.html');
+const art = (name) => JSON.parse(readFileSync(root + `contracts/out/${name}.sol/${name}.json`, 'utf8'));
+const P = art('ArtofficialPortfolio'), M = art('ArtofficialMarks');
+writeFileSync(site + 'src/contracts.gen.ts', `// generated from contracts/out by build.mjs\nexport const PORTFOLIO_ABI = ${JSON.stringify(P.abi)} as const;\nexport const MARKS_ABI = ${JSON.stringify(M.abi)} as const;\nexport const PORTFOLIO_BYTECODE = '${P.bytecode.object}' as const;\nexport const MARKS_BYTECODE = '${M.bytecode.object}' as const;\n`);
 copyFileSync(site + 'src/style.css', site + 'public/style.css');
 writeFileSync(site + 'public/paper.md', paperMd);
-const esb = (args) => execFileSync('npx', ['-y', 'esbuild@0.24.0', ...args, `--tsconfig=${root}tsconfig.json`, '--bundle', '--log-level=warning'], { stdio: 'inherit' });
+const esb = (args) => execFileSync(root + 'node_modules/.bin/esbuild', [...args, `--tsconfig=${root}tsconfig.json`, '--bundle', '--log-level=warning'], { stdio: 'inherit' });
 esb([site + 'src/worker.ts', '--format=esm', '--platform=neutral', '--external:cloudflare:workers', `--define:GENESIS="${genesis}"`, `--outfile=${site}dist/worker.js`]);
 esb([site + 'src/app.ts', '--format=esm', '--platform=browser', '--minify', `--outfile=${site}public/app.js`]);
+esb([site + 'src/collect.ts', '--format=esm', '--platform=browser', '--minify', `--outfile=${site}public/collect.js`]);
 console.log('genesis', genesis);

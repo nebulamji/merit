@@ -15,6 +15,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: cd packages/term && python3 -m unittest test_merit_term
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: cd contracts && forge install OpenZeppelin/openzeppelin-contracts@v5.1.0 foundry-rs/forge-std --no-git && forge test -vv
   app:
     needs: test
     strategy:

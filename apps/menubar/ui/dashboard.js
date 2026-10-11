@@ -3404,7 +3404,22 @@
       draining = false;
     }
   }
+  async function setWallet() {
+    const address = $("#wallet").value.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return note("That is not a wallet address (0x\u2026 40 characters).", true);
+    const me = await invoke("public_key");
+    const body = { schema: "merit-wallet/0.1", public_key: me, address, created_utc: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z") };
+    const signature = await invoke("sign", { payloadB64: b64(utf8ToBytes(canonicalJSON(body))) });
+    const res = await http("POST", `${BOOK}/api/wallet`, utf8ToBytes(JSON.stringify({ binding: { ...body, signature } })), "application/json");
+    let j = {};
+    try {
+      j = JSON.parse(text(res.body));
+    } catch {
+    }
+    note(j.ok ? `Wallet set. Your share of every Portfolio goes to ${j.address}; own your marks at merit.artofficial.computer/collect.` : `Not set: ${j.reason ?? res.status}.`, !j.ok);
+  }
   async function main() {
+    $("#set-wallet").onclick = setWallet;
     $("#me").textContent = `Your key: ${(await invoke("public_key")).slice(0, 16)}\u2026`;
     $("#recognize").onclick = recognizeOther;
     await drain();

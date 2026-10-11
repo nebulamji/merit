@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collect</title>
+<meta name="description" content="Collect the Book at its milestones; own your own mark. Every sale is split by contract with the people whose work is in it.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='none' stroke='%23b0841f' stroke-width='3'/></svg>">
+</head>
+<body>
+<header><a class="word" href="/">artofficial</a><nav><a href="/">The Book</a><a href="/paper">Paper</a><a href="#" id="connect">Connect wallet</a> <span id="who" class="mono small"></span></nav></header>
+<main>
+<h1>Collect</h1>
+<p class="lede">The Book is made by the people who inscribe it. At each milestone it becomes a Portfolio anyone can collect, and half of every sale goes to the people whose marks are in it.</p>
+<p id="summary" class="small"></p>
+<p id="split" class="small"></p>
+<p id="not-live" class="small" hidden>The contracts on Base are not switched on yet.</p>
+<p id="note" aria-live="polite"></p>
+<h2>Portfolios</h2>
+<div id="portfolios"></div>
+<h2>Own your mark</h2>
+<p>If you have a mark in the Book, you can hold it in your own wallet. It is soulbound: it can never be sold or transferred. First set your wallet in the Merit app (your Merit key signs it), then:</p>
+<div class="row"><input id="seq" type="number" min="1" placeholder="Mark No."> <button id="own">Own my mark</button></div>
+<h2>Withdraw</h2>
+<p class="small">For the platform and treasury wallets.</p>
+<div class="row"><button id="withdraw">Withdraw what this wallet is owed</button></div>
+</main>
+<footer><span>Merit is never sold. The art is.</span></footer>
+<script type="module" src="/collect.js"></script>
+</body>
+</html>

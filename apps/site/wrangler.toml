@@ -19,3 +19,13 @@ class_name = "Book"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Book"]
+
+[vars]
+CHAIN_ID = "8453"
+PORTFOLIO_EVERY = "100"
+PORTFOLIO_HOURS = "24"
+PORTFOLIO_PRICE_WEI = "2000000000000000"
+MARK_FEE_WEI = "200000000000000"
+# Set after the owner deploys from /deploy:
+PORTFOLIO_ADDRESS = ""
+MARKS_ADDRESS = ""

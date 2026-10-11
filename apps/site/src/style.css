@@ -52,3 +52,9 @@ article ol { padding-left: 22px; font-size: 16px; }
 #checks li[data-state="ok"] { color: var(--ok); }
 #checks li[data-state="bad"] { color: var(--bad); }
 #checks li[data-state="wait"] { color: var(--muted); }
+#note[data-state="bad"] { color: var(--bad); } #note[data-state="ok"] { color: var(--ok); }
+.pcard { display: grid; grid-template-columns: 160px 1fr; gap: 16px; align-items: start; border-top: 1px solid var(--rule); padding: 16px 0; }
+.pcard img { width: 160px; height: 160px; border: 1px solid var(--rule); }
+input[type=number] { font: inherit; width: 120px; padding: 6px 8px; border: 1px solid var(--rule); background: var(--field); color: var(--ink); border-radius: 6px; }
+pre { white-space: pre-wrap; word-break: break-all; }
+@media (max-width: 560px) { .pcard { grid-template-columns: 1fr; } .pcard img { width: 100%; height: auto; } }

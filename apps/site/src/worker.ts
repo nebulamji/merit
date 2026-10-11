@@ -4,10 +4,11 @@ import { shapeOf } from './shape';
 import { blockMerkleRoot } from '../../../packages/verify/src/ots';
 import { RULES, FOUNDER, EARN, workFloor, anchorClaim, recognitionClaim, earnedClaim, type Proved } from './qualify';
 import type { Recognition } from '@merit/attest';
+import { config, verifyWallet, snapshot, opening, claimProof, markClaim, portfolioMeta, markMeta, portfolioSVG, markSVG, type EconomyEnv, type Snapshot, type WalletBinding } from './economy';
 
 import { DurableObject } from 'cloudflare:workers';
 
-interface Env { BOOK: DurableObjectNamespace<Book>; ASSETS: Fetcher; FOUNDER?: string }
+interface Env extends EconomyEnv { BOOK: DurableObjectNamespace<Book>; ASSETS: Fetcher; FOUNDER?: string }
 
 /** Mark 0 is the paper itself: the sha256 of the whitepaper as published here. Set at build. */
 declare const GENESIS: string;
@@ -30,6 +31,8 @@ CREATE TABLE IF NOT EXISTS inscriptions (
   inscribed_utc TEXT NOT NULL, chain TEXT NOT NULL, shape TEXT NOT NULL, certificate TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rate (bucket TEXT PRIMARY KEY, n INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS blocks (height INTEGER PRIMARY KEY, root TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS wallets (public_key TEXT PRIMARY KEY, address TEXT NOT NULL, binding TEXT NOT NULL, set_utc TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS portfolios (n INTEGER PRIMARY KEY, snapshot TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, certificate TEXT NOT NULL, ots TEXT NOT NULL, shape TEXT NOT NULL, requested_utc TEXT NOT NULL);`;
 const REQUEST_DAYS = 30;
 const MAX_OPEN_REQUESTS = 500;
@@ -42,8 +45,10 @@ const COLUMNS = ['recognizer TEXT', 'by_seq INTEGER', 'anchor_height INTEGER', '
 export class Book extends DurableObject {
   sql: SqlStorage;
   founder: string;
+  env: Env;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.env = env;
     this.sql = ctx.storage.sql;
     this.founder = env.FOUNDER || FOUNDER;
     this.sql.exec(SCHEMA_SQL);
@@ -64,6 +69,45 @@ export class Book extends DurableObject {
     const root = await blockMerkleRoot(height);
     this.sql.exec('INSERT OR IGNORE INTO blocks (height, root) VALUES (?, ?)', height, root);
     return root;
+  }
+
+  // ---------------- the art economy ----------------
+  setWallet(b: WalletBinding) {
+    const bad = verifyWallet(b);
+    if (bad) return { ok: false, status: 422, reason: bad };
+    if (!this.sql.exec('SELECT 1 FROM inscriptions WHERE public_key = ?', b.public_key).toArray().length) return { ok: false, status: 422, reason: 'that key has no mark in the Book yet' };
+    this.sql.exec('INSERT INTO wallets (public_key, address, binding, set_utc) VALUES (?,?,?,?) ON CONFLICT(public_key) DO UPDATE SET address = excluded.address, binding = excluded.binding, set_utc = excluded.set_utc',
+      b.public_key, b.address.toLowerCase(), JSON.stringify(b), new Date().toISOString());
+    return { ok: true, address: b.address.toLowerCase() };
+  }
+  wallet(publicKey: string): string | null {
+    return (this.sql.exec('SELECT address FROM wallets WHERE public_key = ?', publicKey).toArray()[0] as any)?.address ?? null;
+  }
+  /** Portfolio n exists once the Book reaches n*every marks; its contributor list freezes the first time anyone opens it. */
+  portfolio(n: number): Snapshot | { error: string } {
+    const cfg = config(this.env);
+    const have = (this.sql.exec('SELECT snapshot FROM portfolios WHERE n = ?', n).toArray()[0] as any)?.snapshot;
+    if (have) return JSON.parse(have);
+    const count = (this.sql.exec('SELECT COUNT(*) AS c FROM inscriptions').one() as any).c as number;
+    if (!Number.isInteger(n) || n < 1 || count < n * cfg.every) return { error: `Portfolio ${n} opens at ${n * cfg.every} marks (the Book has ${count})` };
+    const marks = this.sql.exec('SELECT seq, public_key, chain FROM inscriptions WHERE seq <= ? ORDER BY seq', n * cfg.every).toArray() as any[];
+    const wallets = new Map((this.sql.exec('SELECT public_key, address FROM wallets').toArray() as any[]).map((w) => [w.public_key, w.address] as const));
+    const s = snapshot(n, marks, wallets, cfg, Math.floor(Date.now() / 1000));
+    this.sql.exec('INSERT INTO portfolios (n, snapshot) VALUES (?, ?)', n, JSON.stringify(s));
+    return s;
+  }
+  portfolios() {
+    const cfg = config(this.env);
+    const count = (this.sql.exec('SELECT COUNT(*) AS c FROM inscriptions').one() as any).c as number;
+    const opened = (this.sql.exec('SELECT snapshot FROM portfolios ORDER BY n').toArray() as any[]).map((r) => JSON.parse(r.snapshot) as Snapshot)
+      .map((s) => ({ n: s.n, marks: s.marks, start: s.start, end: s.end, contributors: Object.keys(s.contributors).length, total_shares: s.total_shares, price_wei: s.price_wei }));
+    return { config: cfg, marks: count, available: Math.floor(count / cfg.every), next_at: (Math.floor(count / cfg.every) + 1) * cfg.every, opened };
+  }
+  marksUpTo(n: number) {
+    return (this.sql.exec('SELECT seq, id, shape, by_seq, chain FROM inscriptions WHERE seq <= ? ORDER BY seq', n).toArray() as any[]).map((m) => ({ ...m, shape: JSON.parse(m.shape) }));
+  }
+  markAuthor(seq: number) {
+    return this.sql.exec('SELECT public_key, id FROM inscriptions WHERE seq = ?', seq).toArray()[0] as any;
   }
 
   /**
@@ -202,6 +246,35 @@ export default {
     const url = new URL(req.url);
     if (url.pathname === '/api/book' && req.method === 'GET') return json(await book(env).list());
     if (url.pathname === '/api/inscribe' && req.method === 'POST') return inscribe(req, env);
+    if (url.pathname === '/api/chain') return json((await (book(env) as any).portfolios()));
+    if (url.pathname === '/api/wallet' && req.method === 'POST') {
+      let body: any; try { body = await req.json(); } catch { return json({ ok: false, reason: 'not JSON' }, 400); }
+      const out: any = await (book(env) as any).setWallet(body?.binding); const { status, ...rest } = out; return json(rest, status ?? 200);
+    }
+    let pm = url.pathname.match(/^\/api\/portfolio\/(\d+)(\.json|\.svg|\/opening|\/claim)?$/);
+    if (pm) {
+      const n = Number(pm[1]); const s: any = await (book(env) as any).portfolio(n);
+      if (s.error) return json({ ok: false, reason: s.error }, 404);
+      if (pm[2] === '.json') return json(portfolioMeta(s));
+      if (pm[2] === '.svg') {
+        const marks = await (book(env) as any).marksUpTo(s.marks);
+        return new Response(portfolioSVG(marks, marks[marks.length - 1].chain, GENESIS, n), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
+      }
+      if (pm[2] === '/opening') { const o = opening(s, env); return o ? json(o) : json({ ok: false, reason: 'contracts not deployed yet' }, 503); }
+      if (pm[2] === '/claim') { const c = claimProof(s, url.searchParams.get('address') ?? ''); return c ? json(c) : json({ ok: false, reason: 'that address has no share in this Portfolio' }, 404); }
+      const { contributors, ...pub } = s; return json({ ...pub, contributors: Object.keys(contributors).length });
+    }
+    pm = url.pathname.match(/^\/api\/mark-token\/(\d+)(\.json|\.svg|\/claim)$/);
+    if (pm) {
+      const seq = Number(pm[1]); const a: any = await (book(env) as any).markAuthor(seq);
+      if (!a) return json({ ok: false, reason: 'no such mark' }, 404);
+      if (pm[2] === '.json') return json(markMeta(seq, a.id));
+      if (pm[2] === '.svg') { const [m] = (await (book(env) as any).marksUpTo(seq)).slice(-1); return new Response(markSVG(m, GENESIS), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } }); }
+      const to = (url.searchParams.get('to') ?? '').toLowerCase();
+      const w = await (book(env) as any).wallet(a.public_key);
+      if (!w || w !== to) return json({ ok: false, reason: 'the mark\'s author has not bound this wallet (set it in the Merit app)' }, 403);
+      const c = markClaim(seq, to, env); return c ? json(c) : json({ ok: false, reason: 'contracts not deployed yet' }, 503);
+    }
     if (url.pathname === '/api/requests' && req.method === 'GET') return json(await book(env).requests());
     if (url.pathname === '/api/request' && req.method === 'POST') {
       let body: any; try { body = await req.json(); } catch { return json({ ok: false, reason: 'not JSON' }, 400); }

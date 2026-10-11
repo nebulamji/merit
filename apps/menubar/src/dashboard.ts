@@ -224,7 +224,20 @@ async function drain() {
   try { for (const name of await invoke('take_to_sign') as string[]) await signSession(`sessions/${name}`); } finally { draining = false; }
 }
 
+/** Bind a wallet to your Merit key: your share of Portfolio sales goes there, and it may own your marks. */
+async function setWallet() {
+  const address = ($('#wallet') as HTMLInputElement).value.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return note('That is not a wallet address (0x… 40 characters).', true);
+  const me: string = await invoke('public_key');
+  const body = { schema: 'merit-wallet/0.1', public_key: me, address, created_utc: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') };
+  const signature: string = await invoke('sign', { payloadB64: b64(utf8ToBytes(canonicalJSON(body))) });
+  const res = await http('POST', `${BOOK}/api/wallet`, utf8ToBytes(JSON.stringify({ binding: { ...body, signature } })), 'application/json');
+  let j: any = {}; try { j = JSON.parse(text(res.body)); } catch { /* */ }
+  note(j.ok ? `Wallet set. Your share of every Portfolio goes to ${j.address}; own your marks at merit.artofficial.computer/collect.` : `Not set: ${j.reason ?? res.status}.`, !j.ok);
+}
+
 async function main() {
+  $('#set-wallet').onclick = setWallet;
   $('#me').textContent = `Your key: ${(await invoke('public_key') as string).slice(0, 16)}…`;
   $('#recognize').onclick = recognizeOther;
   await drain();

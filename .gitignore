@@ -9,3 +9,7 @@ apps/menubar/src-tauri/gen/
 apps/site/public/
 apps/site/dist/
 apps/site/.wrangler/
+contracts/out/
+contracts/cache/
+apps/site/.dev.vars
+contracts/lib/
