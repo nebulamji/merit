@@ -1,6 +1,6 @@
 # Merit: A Peer-to-Peer Electronic Proof-of-Process System
 
-**Kyle Benford** · Public draft 0.2, October 2026 (draft 0.1 timestamped 2026-10-10 and anchored in Bitcoin)
+**Kyle Benford** · Public draft 0.2.1, October 2026 (draft 0.1 timestamped 2026-10-10 and anchored in Bitcoin)
 
 ## Abstract
 

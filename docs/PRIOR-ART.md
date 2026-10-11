@@ -6,7 +6,7 @@ This repository, and each tagged release of it, is published as prior art. Its c
 
 | Date (ET) | Idea | Evidence |
 |---|---|---|
-| 2026-04-20 → 04-22 | Agent self-scoring against a ledger; confidence as settlement probability (0.89 → 0.62 from payment records) | *Paper 050*, *Receipt: 0.89, then 0.62* (dated to original commits; Proof Ledger) |
+| 2026-04-20 → 04-22 | Agent self-scoring against a ledger; confidence as settlement probability (0.89 → 0.62 from payment records) | Published essays: *Paper 050*, *Receipt: 0.89, then 0.62* (dated to original commits; Proof Ledger) |
 | 2026-05-23 | "Typing is imperfect"; "the delete button shouldn't exist" — keep corrections as signal | author's dated session logs |
 | 2026-05-24 | Keystroke-process identity: do not correct the human, sign them; timing and rhythm as identity; zero-knowledge attestation | author's dated session logs and specs |
 | 2026-05-23/24 | Confidence, forgiveness and inspection scores on every output; sound/music as an identity and trust substrate | author's dated session logs |
