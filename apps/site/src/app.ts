@@ -69,7 +69,7 @@ class BookView {
     const head = this.book.head; this.spin = (parseInt(head.slice(0, 6), 16) / 0xffffff) * Math.PI * 2;
     const n = this.book.marks.length, R = Math.min(this.w, this.hgt) * 0.4;
     const ring = (i: number) => 0.16 + 0.84 * Math.sqrt(i / Math.max(8, n));
-    const size = Math.max(9, Math.min(44, (R / Math.sqrt(Math.max(4, n))) * 1.6));
+    const size = Math.max(9, Math.min(90, (R / Math.sqrt(Math.max(4, n))) * 1.6));
     this.drawn = this.book.marks.map((m, i) => { const a = (i + 1) * GOLDEN; const rr = R * ring(i + 1); return { mark: m, d: drawMark(m.id, m.shape, [Math.cos(a) * rr, Math.sin(a) * rr], size) }; });
   }
   add(m: Mark) { this.book.marks.push(m); this.book.head = m.chain; this.layout(); this.t0 = performance.now() - this.revealMs(this.book.marks.length - 1); }

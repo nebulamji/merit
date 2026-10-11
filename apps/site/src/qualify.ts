@@ -40,7 +40,7 @@ export function anchorClaim(c: MeritAttestation, ots: Uint8Array): { ok: true; h
 
 export function recognitionClaim(c: MeritAttestation, r: Recognition | undefined, founder = FOUNDER): string | null {
   if (c.author.public_key === founder) return null;
-  if (!r) return 'a recognition from someone already in the Book';
+  if (!r) return 'a recognition from someone already in the Book is needed';
   if (!verifyRecognition(r, c.id)) return 'the recognition does not verify for this certificate';
   if (r.recognizer === c.author.public_key) return 'you cannot recognize yourself';
   return null;

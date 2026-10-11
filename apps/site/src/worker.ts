@@ -101,7 +101,7 @@ export class Book extends DurableObject {
       bySeq = -1;
     } else {
       const rc = recognitionClaim(cert, rec, this.founder);
-      if (rc) return { ok: false, status: 422, reason: `needs ${rc}` };
+      if (rc) return { ok: false, status: 422, reason: rc };
       if (cert.author.public_key !== this.founder) {
         const recognizer = rec!.recognizer;
         if (recognizer !== this.founder) {
