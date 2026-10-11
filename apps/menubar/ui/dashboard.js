@@ -3108,6 +3108,7 @@
     recognitions_per_30_days: 3,
     founder_recognitions_per_30_days: 50
   };
+  var FOUNDER = "65a58b8b295932dc13025a227d4736be4c13563abfc4bfc83eb17219c0fba8d3";
   function workFloor(c) {
     const s = shapeOf(c);
     if (s.typed < RULES.min_typed_chars) return `at least ${RULES.min_typed_chars} typed characters (this has ${s.typed})`;
@@ -3257,6 +3258,41 @@
     note(j.ok ? j.already ? `Already in the Book as No. ${j.seq}.` : `Inscribed as No. ${j.seq}.` : `Not inscribed: ${j.reason ?? res.status}.`, !j.ok);
   }
   var mins = (ms) => Math.max(1, Math.round(ms / 6e4));
+  async function renderWaiting() {
+    const el = $("#waiting");
+    el.innerHTML = "";
+    let list = [];
+    try {
+      list = JSON.parse(text((await http("GET", `${BOOK}/api/requests`)).body));
+    } catch {
+      return;
+    }
+    const me = await invoke("public_key");
+    list = list.filter((w) => !me.startsWith(w.key));
+    $("#waiting-wrap").hidden = !list.length;
+    for (const w of list) {
+      const s = w.shape;
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `<div class="row"><b class="mono">${esc(w.id)}</b><span class="k">asked ${esc(String(w.requested_utc).slice(0, 10))}</span></div>
+      <div class="k">${s.typed} typed \xB7 ${s.pasted} pasted \xB7 ${s.deletions} deletions \xB7 ${s.forgiveness} slips forgiven \xB7 ${mins(s.active_s * 1e3)} active min \xB7 key ${esc(w.key)}\u2026</div>
+      <div class="row"><span class="k">Recognize only work you have reason to stand behind; your recognitions are public.</span><button>Recognize</button></div>`;
+      card.querySelector("button").onclick = async (e) => {
+        e.target.disabled = true;
+        const body = recognitionBody(me, w.id);
+        const signature = await invoke("sign", { payloadB64: b64(utf8ToBytes(canonicalJSON(body))) });
+        const res = await http("POST", `${BOOK}/api/recognize`, utf8ToBytes(JSON.stringify({ recognition: { ...body, signature } })), "application/json");
+        let j = {};
+        try {
+          j = JSON.parse(text(res.body));
+        } catch {
+        }
+        note(j.ok ? `Recognized. It is now Mark ${j.seq} in the Book.` : `Not recognized: ${j.reason ?? res.status}.`, !j.ok);
+        await renderWaiting();
+      };
+      el.append(card);
+    }
+  }
   async function render() {
     const list = await rows();
     const el = $("#list");
@@ -3284,6 +3320,24 @@
           <div><div class="k">slips forgiven</div><div class="v">${m.forgiveness}</div></div>
         </div>
         <div class="k">${esc(r.cert.created_utc)} \xB7 signed by <span class="mono">${esc(r.cert.author.public_key.slice(0, 16))}\u2026</span></div>`;
+        if (r.height && !floor && !await recognitionFor(r.cert.id) && r.cert.author.public_key !== FOUNDER) {
+          const ask = document.createElement("div");
+          ask.className = "row";
+          ask.innerHTML = `<label class="consent"><input type="checkbox"> Ask for recognition: show this certificate's counts, id and key on the Book's waiting list (up to 30 days)</label><button disabled>Ask</button>`;
+          const cb = ask.querySelector("input"), btn = ask.querySelector("button");
+          cb.onchange = () => btn.disabled = !cb.checked;
+          btn.onclick = async () => {
+            btn.disabled = true;
+            const res = await http("POST", `${BOOK}/api/request`, utf8ToBytes(JSON.stringify({ certificate: r.cert, ots: b64(r.ots), consent: true })), "application/json");
+            let j = {};
+            try {
+              j = JSON.parse(text(res.body));
+            } catch {
+            }
+            note(j.ok ? "On the waiting list. When someone recognizes it, it is inscribed automatically." : `Not added: ${j.reason ?? res.status}.`, !j.ok);
+          };
+          card.append(ask);
+        }
         if (r.height && !floor) {
           const row = document.createElement("div");
           row.className = "row";
@@ -3354,6 +3408,7 @@
     $("#me").textContent = `Your key: ${(await invoke("public_key")).slice(0, 16)}\u2026`;
     $("#recognize").onclick = recognizeOther;
     await drain();
+    renderWaiting();
     try {
       await listen("sign-queued", () => drain());
     } catch (e) {
@@ -3361,7 +3416,10 @@
     }
     const list = await render();
     await maintain(list);
-    setInterval(async () => maintain(await render()), 10 * 6e4);
+    setInterval(async () => {
+      maintain(await render());
+      renderWaiting();
+    }, 10 * 6e4);
   }
   main();
 })();

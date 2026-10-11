@@ -135,6 +135,7 @@ function status(b: Book) {
 }
 
 let pending: any = null;
+let asking: { cert: any; ots: Uint8Array } | null = null;
 const parts: { cert?: any; ots?: Uint8Array; rec?: any; certs: Map<string, any>; proofs: Uint8Array[] } = { certs: new Map(), proofs: [] };
 const proofFor = (c: any) => parts.proofs.find((p) => { try { return readOts(p).file_digest === anchorDigestHex(c); } catch { return false; } });
 const pickPrimary = () => { const all = [...parts.certs.values()]; parts.cert = all.sort((a, b) => String(b.created_utc).localeCompare(String(a.created_utc)))[0]; parts.ots = parts.cert ? proofFor(parts.cert) : undefined; };
@@ -217,10 +218,14 @@ async function qualify() {
   }
 
   if (!floor && anchored !== false && recOk) { pending = c; $('#consent-row').hidden = false; }
+  // Real work and anchored, but no one has recognized it yet: offer the waiting list.
+  const askRow = $('#ask-row'); askRow.hidden = true;
+  if (!floor && anchored === true && !recOk && parts.ots && c.author.public_key !== founder) { askRow.hidden = false; asking = { cert: c, ots: parts.ots }; }
 }
 
 async function main() {
   book = await fetch('/api/book').then((r) => r.json());
+  fetch('/api/requests').then((r) => r.json()).then((w: unknown[]) => { if (w.length) $('#status').textContent += ` · ${w.length} waiting for recognition`; }).catch(() => {});
   const view = new BookView($('#book'), book); status(book);
   const ta = $<HTMLTextAreaElement>('#cert');
   ta.addEventListener('input', () => { parts.certs.clear(); try { const j = JSON.parse(ta.value); parts.certs.set(j?.id ?? '0', j); } catch { if (ta.value.trim()) parts.certs.set('0', {}); } pickPrimary(); qualify(); });
@@ -231,6 +236,17 @@ async function main() {
   drop.addEventListener('dragleave', () => delete drop.dataset.over);
   drop.addEventListener('drop', async (e) => { e.preventDefault(); delete drop.dataset.over; for (const f of Array.from(e.dataTransfer?.files ?? [])) await take(f); qualify(); });
   $<HTMLInputElement>('#consent').addEventListener('change', (e) => ($<HTMLButtonElement>('#inscribe').disabled = !(e.target as HTMLInputElement).checked || !pending));
+  $<HTMLInputElement>('#ask-consent').addEventListener('change', (e) => ($<HTMLButtonElement>('#ask').disabled = !(e.target as HTMLInputElement).checked || !asking));
+  $<HTMLButtonElement>('#ask').addEventListener('click', async () => {
+    if (!asking) return;
+    const btn = $<HTMLButtonElement>('#ask'); btn.disabled = true;
+    const r = await fetch('/api/request', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ certificate: asking.cert, ots: b64(asking.ots), consent: true }) }).then((x) => x.json()).catch(() => ({ ok: false, reason: 'network error' }));
+    const out = $('#result');
+    if (!r.ok) { out.dataset.state = 'bad'; out.textContent = `Not added: ${r.reason}.`; btn.disabled = false; return; }
+    out.dataset.state = 'ok';
+    out.textContent = r.already ? 'Already waiting for recognition.' : 'You are on the waiting list. When someone in the Book recognizes this certificate, it is inscribed automatically.';
+    $('#ask-row').hidden = true;
+  });
   $<HTMLButtonElement>('#inscribe').addEventListener('click', async () => {
     if (!pending) return;
     const btn = $<HTMLButtonElement>('#inscribe'); btn.disabled = true;

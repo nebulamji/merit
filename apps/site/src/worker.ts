@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS inscriptions (
   seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, public_key TEXT, created_utc TEXT NOT NULL,
   inscribed_utc TEXT NOT NULL, chain TEXT NOT NULL, shape TEXT NOT NULL, certificate TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rate (bucket TEXT PRIMARY KEY, n INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS blocks (height INTEGER PRIMARY KEY, root TEXT NOT NULL);`;
+CREATE TABLE IF NOT EXISTS blocks (height INTEGER PRIMARY KEY, root TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, certificate TEXT NOT NULL, ots TEXT NOT NULL, shape TEXT NOT NULL, requested_utc TEXT NOT NULL);`;
+const REQUEST_DAYS = 30;
+const MAX_OPEN_REQUESTS = 500;
 const COLUMNS = ['recognizer TEXT', 'by_seq INTEGER', 'anchor_height INTEGER', 'ots TEXT', 'recognition TEXT'];
 
 /**
@@ -61,6 +64,50 @@ export class Book extends DurableObject {
     const root = await blockMerkleRoot(height);
     this.sql.exec('INSERT OR IGNORE INTO blocks (height, root) VALUES (?, ?)', height, root);
     return root;
+  }
+
+  /**
+   * Ask for recognition: real work, anchored in Bitcoin, waiting for someone in the Book to recognize it.
+   * The same checks as inscription run now, so a recognizer only ever sees work that already qualified.
+   */
+  async request(cert: MeritAttestation, otsB64: string, ipBucket: string) {
+    if (this.sql.exec('SELECT 1 FROM inscriptions WHERE id = ?', cert.id).toArray().length) return { ok: false, status: 409, reason: 'already in the Book' };
+    if (this.sql.exec('SELECT 1 FROM requests WHERE id = ?', cert.id).toArray().length) return { ok: true, already: true };
+    const n = (this.sql.exec('INSERT INTO rate (bucket, n) VALUES (?, 1) ON CONFLICT(bucket) DO UPDATE SET n = n + 1 RETURNING n', ipBucket).one() as any).n;
+    if (n > 12) return { ok: false, status: 429, reason: 'slow down; try again within the hour' };
+    const floor = workFloor(cert);
+    if (floor) return { ok: false, status: 422, reason: `needs ${floor}` };
+    let ots: Uint8Array;
+    try { ots = Uint8Array.from(atob(otsB64 ?? ''), (ch) => ch.charCodeAt(0)); } catch { return { ok: false, status: 422, reason: 'needs its anchor proof (.ots)' }; }
+    const claims = anchorClaim(cert, ots);
+    if (typeof claims === 'string') return { ok: false, status: 422, reason: claims };
+    let confirmed = false;
+    for (const c of claims) { try { if ((await this.blockRoot(c.height)) === c.root) { confirmed = true; break; } } catch { /* next */ } }
+    if (!confirmed) return { ok: false, status: 422, reason: 'the Bitcoin anchor could not be confirmed against the block' };
+    this.expire();
+    const open = (this.sql.exec('SELECT COUNT(*) AS c FROM requests').one() as any).c;
+    if (open >= MAX_OPEN_REQUESTS) return { ok: false, status: 429, reason: 'the waiting list is full; try again later' };
+    this.sql.exec('INSERT INTO requests (id, certificate, ots, shape, requested_utc) VALUES (?,?,?,?,?)', cert.id, JSON.stringify(cert), otsB64, JSON.stringify(shapeOf(cert)), new Date().toISOString());
+    return { ok: true };
+  }
+
+  expire() {
+    this.sql.exec('DELETE FROM requests WHERE requested_utc < ?', new Date(Date.now() - REQUEST_DAYS * 86400_000).toISOString());
+  }
+
+  requests(): { id: string; key: string; requested_utc: string; shape: Record<string, number> }[] {
+    this.expire();
+    return this.sql.exec('SELECT id, shape, requested_utc, substr(json_extract(certificate, "$.author.public_key"),1,12) AS key FROM requests ORDER BY requested_utc').toArray()
+      .map((r: any) => ({ ...r, shape: JSON.parse(r.shape) }));
+  }
+
+  /** A recognition for a waiting request: inscribe it with the stored certificate and proof, then clear the request. */
+  async recognizeRequest(rec: Recognition) {
+    const r = this.sql.exec('SELECT certificate, ots FROM requests WHERE id = ?', rec?.certificate_id ?? '').toArray()[0] as any;
+    if (!r) return { ok: false, status: 404, reason: 'no such request (it may already be in the Book)' };
+    const out: any = await this.inscribe(JSON.parse(r.certificate), r.ots, rec, `recognize|${rec.recognizer}|${new Date().toISOString().slice(0, 13)}`);
+    if (out.ok) this.sql.exec('DELETE FROM requests WHERE id = ?', rec.certificate_id);
+    return out;
   }
 
   async inscribe(cert: MeritAttestation, otsB64: string, rec: Recognition | undefined, ipBucket: string, history: Proved[] = []) {
@@ -123,6 +170,7 @@ export class Book extends DurableObject {
     this.sql.exec('INSERT INTO inscriptions (seq, id, public_key, created_utc, inscribed_utc, chain, shape, certificate, recognizer, by_seq, anchor_height, ots, recognition) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
       seq, cert.id, cert.author.public_key, cert.created_utc, new Date().toISOString(), chain, JSON.stringify(shapeOf(cert)), JSON.stringify(cert),
       rec?.recognizer ?? null, bySeq, height, otsB64, rec ? JSON.stringify(rec) : null);
+    this.sql.exec('DELETE FROM requests WHERE id = ?', cert.id);
     return { ok: true, seq, chain, prev, by_seq: bySeq, anchor_height: height };
   }
 }
@@ -154,6 +202,22 @@ export default {
     const url = new URL(req.url);
     if (url.pathname === '/api/book' && req.method === 'GET') return json(await book(env).list());
     if (url.pathname === '/api/inscribe' && req.method === 'POST') return inscribe(req, env);
+    if (url.pathname === '/api/requests' && req.method === 'GET') return json(await book(env).requests());
+    if (url.pathname === '/api/request' && req.method === 'POST') {
+      let body: any; try { body = await req.json(); } catch { return json({ ok: false, reason: 'not JSON' }, 400); }
+      if (body?.consent !== true) return json({ ok: false, reason: 'consent required' }, 400);
+      const v = check(body.certificate); if (!v.ok) return json(v, 422);
+      const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+      const out: any = await (book(env) as any).request(body.certificate, body.ots, sha256Hex(`${ip}|${new Date().toISOString().slice(0, 13)}`));
+      const { status, ...rest } = out;
+      return json(rest, status ?? 200);
+    }
+    if (url.pathname === '/api/recognize' && req.method === 'POST') {
+      let body: any; try { body = await req.json(); } catch { return json({ ok: false, reason: 'not JSON' }, 400); }
+      const out: any = await (book(env) as any).recognizeRequest(body?.recognition);
+      const { status, ...rest } = out;
+      return json(rest, status ?? 200);
+    }
     const m = url.pathname.match(/^\/api\/mark\/(\d+)$/);
     if (m) {
       const r = await book(env).mark(Number(m[1]));

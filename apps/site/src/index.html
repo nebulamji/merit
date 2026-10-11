@@ -30,13 +30,15 @@
 <ul id="checks" aria-live="polite"></ul>
 <div id="consent-row" hidden><label><input id="consent" type="checkbox">Inscribing publishes this certificate (its counts, its id and its public key) in the Book, permanently and in order.</label>
 <div class="row"><button id="inscribe" disabled>Inscribe</button></div></div>
+<div id="ask-row" hidden><label><input id="ask-consent" type="checkbox">Ask for recognition. Until someone in the Book recognizes it (up to 30 days), this certificate's counts, id and public key are shown on the waiting list; once recognized, it is inscribed permanently.</label>
+<div class="row"><button id="ask" disabled>Ask for recognition</button></div></div>
 
 <h2 id="rules">What it takes to enter</h2>
 <p>The Book admits work, not traffic. A certificate is inscribed only when all three hold, and the server checks each one again. No one reviews anything by hand:</p>
 <p><em>Real work.</em> At least 250 characters, mostly typed rather than pasted.<br>
 <em>Anchored.</em> Its timestamp is confirmed in a Bitcoin block, not just submitted. That takes a few hours after you sign, and it means nothing here was backdated.<br>
 <em>Recognized, or earned by time.</em> Either someone already in the Book signs that they recognize it (<span class="mono">merit recognize cert.json</span>), which is drawn as a thread from their mark to yours, or you earn entry yourself: three of your own certificates, each real work and each anchored, spread over at least a week of Bitcoin blocks. Time is the one cost that cannot be faked here. Each person can recognize three certificates every thirty days, and up to twenty-five people a day can enter by time.</p>
-<p class="small">The first recognizer is the author of the paper; their threads run from Mark 0 at the center.</p>
+<p class="small">The first recognizer is the author of the paper; their threads run from Mark 0 at the center. If you know no one in the Book yet, ask for recognition: work that already qualifies waits on a list that members see in their Merit app, and one of them can recognize it with a click.</p>
 
 <h2 id="what">What this is</h2>
 <p>A certificate proves who signed a record of a session and that every number in it follows from a committed log. It is evidence of process, not proof of authorship. Its strength is cumulative: more sessions, more ways of capturing them, more people who recognize the work.</p>

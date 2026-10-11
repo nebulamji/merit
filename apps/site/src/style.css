@@ -37,8 +37,8 @@ label.file input { display: none; }
 #result { margin-top: 12px; min-height: 1.6em; }
 #result[data-state="ok"] { color: var(--ok); }
 #result[data-state="bad"] { color: var(--bad); }
-#consent-row { margin-top: 10px; color: var(--muted); font-size: 16px; }
-#consent-row input { margin-right: 8px; accent-color: var(--gold); }
+#consent-row, #ask-row { margin-top: 10px; color: var(--muted); font-size: 16px; }
+#consent-row input, #ask-row input { margin-right: 8px; accent-color: var(--gold); }
 .small { font-size: 15px; color: var(--muted); }
 footer { margin-top: 96px; padding-bottom: 48px; border-top: 1px solid var(--rule); padding-top: 18px; color: var(--muted); font-size: 15px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 article h1 { font-size: 34px; margin-top: 48px; }

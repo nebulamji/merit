@@ -22,6 +22,7 @@
   textarea { width:100%; box-sizing:border-box; min-height:80px; background:var(--field); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px; font:12px ui-monospace, Menlo, monospace; }
   details { margin-top:18px; } summary { cursor:pointer; color:var(--muted); }
   a { color:inherit; }
+  h2 { font-size:14px; font-weight:600; color:var(--muted); margin:18px 0 0; text-transform:uppercase; letter-spacing:.04em; }
 </style>
 </head>
 <body>
@@ -31,6 +32,8 @@
   <p id="note" aria-live="polite"></p>
 </header>
 <main>
+  <section id="waiting-wrap" hidden><h2>Waiting for recognition</h2><div id="waiting"></div></section>
+  <h2>Your sessions</h2>
   <div id="list"><p class="sub">Loading…</p></div>
   <details>
     <summary>Recognize someone, or add a recognition you received</summary>

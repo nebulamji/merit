@@ -6,7 +6,7 @@ import { deriveKeyMetrics, privacyLint } from '@merit/capture';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 import { stampDigest, upgradeOts, confirmBitcoin, readOts } from '../../../packages/verify/src/ots';
-import { workFloor } from '../../site/src/qualify';
+import { workFloor, FOUNDER } from '../../site/src/qualify';
 
 const { invoke } = (window as any).__TAURI__.core;
 const { listen } = (window as any).__TAURI__.event;
@@ -113,6 +113,33 @@ async function inscribe(r: Row, list: Row[]) {
 
 const mins = (ms: number) => Math.max(1, Math.round(ms / 60000));
 
+/** Certificates waiting for someone in the Book to recognize them. Recognizing signs natively and inscribes. */
+async function renderWaiting() {
+  const el = $('#waiting'); el.innerHTML = '';
+  let list: any[] = [];
+  try { list = JSON.parse(text((await http('GET', `${BOOK}/api/requests`)).body)); } catch { return; }
+  const me: string = await invoke('public_key');
+  list = list.filter((w) => !me.startsWith(w.key));
+  $('#waiting-wrap').hidden = !list.length;
+  for (const w of list) {
+    const s = w.shape;
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = `<div class="row"><b class="mono">${esc(w.id)}</b><span class="k">asked ${esc(String(w.requested_utc).slice(0, 10))}</span></div>
+      <div class="k">${s.typed} typed · ${s.pasted} pasted · ${s.deletions} deletions · ${s.forgiveness} slips forgiven · ${mins(s.active_s * 1000)} active min · key ${esc(w.key)}…</div>
+      <div class="row"><span class="k">Recognize only work you have reason to stand behind; your recognitions are public.</span><button>Recognize</button></div>`;
+    card.querySelector('button')!.onclick = async (e) => {
+      (e.target as HTMLButtonElement).disabled = true;
+      const body = recognitionBody(me, w.id);
+      const signature: string = await invoke('sign', { payloadB64: b64(utf8ToBytes(canonicalJSON(body))) });
+      const res = await http('POST', `${BOOK}/api/recognize`, utf8ToBytes(JSON.stringify({ recognition: { ...body, signature } })), 'application/json');
+      let j: any = {}; try { j = JSON.parse(text(res.body)); } catch { /* */ }
+      note(j.ok ? `Recognized. It is now Mark ${j.seq} in the Book.` : `Not recognized: ${j.reason ?? res.status}.`, !j.ok);
+      await renderWaiting();
+    };
+    el.append(card);
+  }
+}
+
 async function render() {
   const list = await rows();
   const el = $('#list');
@@ -136,6 +163,19 @@ async function render() {
           <div><div class="k">slips forgiven</div><div class="v">${m.forgiveness}</div></div>
         </div>
         <div class="k">${esc(r.cert.created_utc)} · signed by <span class="mono">${esc(r.cert.author.public_key.slice(0, 16))}…</span></div>`;
+      if (r.height && !floor && !(await recognitionFor(r.cert.id)) && r.cert.author.public_key !== FOUNDER) {
+        const ask = document.createElement('div'); ask.className = 'row';
+        ask.innerHTML = `<label class="consent"><input type="checkbox"> Ask for recognition: show this certificate's counts, id and key on the Book's waiting list (up to 30 days)</label><button disabled>Ask</button>`;
+        const cb = ask.querySelector('input')!, btn = ask.querySelector('button')!;
+        cb.onchange = () => (btn.disabled = !cb.checked);
+        btn.onclick = async () => {
+          btn.disabled = true;
+          const res = await http('POST', `${BOOK}/api/request`, utf8ToBytes(JSON.stringify({ certificate: r.cert, ots: b64(r.ots!), consent: true })), 'application/json');
+          let j: any = {}; try { j = JSON.parse(text(res.body)); } catch { /* */ }
+          note(j.ok ? 'On the waiting list. When someone recognizes it, it is inscribed automatically.' : `Not added: ${j.reason ?? res.status}.`, !j.ok);
+        };
+        card.append(ask);
+      }
       if (r.height && !floor) {
         const row = document.createElement('div'); row.className = 'row';
         row.innerHTML = `<label class="consent"><input type="checkbox"> Publish this certificate's counts, id and public key in the Book, permanently</label><button disabled>Inscribe</button>`;
@@ -188,9 +228,10 @@ async function main() {
   $('#me').textContent = `Your key: ${(await invoke('public_key') as string).slice(0, 16)}…`;
   $('#recognize').onclick = recognizeOther;
   await drain();
+  renderWaiting();
   try { await listen('sign-queued', () => drain()); } catch (e) { invoke('log', { msg: `listen failed: ${(e as Error).message ?? e}` }); }
   const list = await render();
   await maintain(list);
-  setInterval(async () => maintain(await render()), 10 * 60_000);
+  setInterval(async () => { maintain(await render()); renderWaiting(); }, 10 * 60_000);
 }
 main();
