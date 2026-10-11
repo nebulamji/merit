@@ -30,32 +30,34 @@ contract ArtofficialTest is Test {
         end = uint64(block.timestamp + 1 days);
         bytes memory sig = sign(pf.openingDigest(1, 0.01 ether, uint64(block.timestamp), end, root(), 3, bytes32("state")));
         vm.prank(collector);
-        pf.openAndCollect{value: 0.03 ether}(1, 0.01 ether, uint64(block.timestamp), end, root(), 3, bytes32("state"), sig, 3);
+        pf.openAndCollect{value: 0.030301 ether}(1, 0.01 ether, uint64(block.timestamp), end, root(), 3, bytes32("state"), sig, 3);
     }
 
     function test_split_and_claims() public {
         uint64 end = openOne();
         assertEq(pf.balanceOf(collector, 1), 3);
-        assertEq(pf.owed(platform), 0.003 ether);   // 10%
-        assertEq(pf.owed(treasury), 0.012 ether);   // 40%
-        (,,,,,, uint256 pool,) = pf.portfolios(1);
-        assertEq(pool, 0.015 ether);                // 50%
+        // rising price: 0.01 + 0.0101 + 0.010201 = 0.030301
+        assertEq(pf.owed(platform), 0.0030301 ether);   // 10%
+        assertEq(pf.owed(treasury), 0.01212040 ether);  // 40%
+        (,,,,,, uint256 pool,,,) = pf.portfolios(1);
+        assertEq(pool, 0.01515050 ether);               // 50%
+        assertEq(pf.quote(1, 1), 0.01030301 ether);     // next edition is 1% dearer
         bytes32[] memory pa = new bytes32[](1); pa[0] = leaf(bob, 1);
         vm.expectRevert(ArtofficialPortfolio.WindowNotClosed.selector);
         pf.claim(1, alice, 2, pa);
         vm.warp(end + 1);
         pf.claim(1, alice, 2, pa);
-        assertEq(alice.balance, 0.01 ether);
+        assertEq(alice.balance, 10100333333333333); // pool 15150500000000000 * 2/3
         vm.expectRevert(ArtofficialPortfolio.AlreadyClaimed.selector);
         pf.claim(1, alice, 2, pa);
         bytes32[] memory pb = new bytes32[](1); pb[0] = leaf(alice, 2);
         vm.expectRevert(ArtofficialPortfolio.BadProof.selector);
         pf.claim(1, bob, 5, pb);                    // inflated shares rejected
         pf.claim(1, bob, 1, pb);
-        assertEq(bob.balance, 0.005 ether);
-        vm.prank(platform); pf.withdraw(); assertEq(platform.balance, 0.003 ether);
-        vm.prank(treasury); pf.withdraw(); assertEq(treasury.balance, 0.012 ether);
-        assertEq(address(pf).balance, 0);
+        assertEq(bob.balance, 5050166666666666);   // pool * 1/3
+        vm.prank(platform); pf.withdraw(); assertEq(platform.balance, 0.0030301 ether);
+        vm.prank(treasury); pf.withdraw(); assertEq(treasury.balance, 0.0121204 ether);
+        assertLe(address(pf).balance, 2);                 // at most rounding dust
     }
 
     function test_rejects_forged_opening_wrong_payment_and_late_collect() public {
@@ -65,10 +67,16 @@ contract ArtofficialTest is Test {
         pf.open(2, 1, 0, end, root(), 3, 0, abi.encodePacked(r, s, v));
         openOne();
         vm.prank(collector); vm.expectRevert(ArtofficialPortfolio.WrongPayment.selector);
-        pf.collect{value: 0.005 ether}(1, 1);
+        pf.collect{value: 0.01 ether}(1, 1);              // old price no longer accepted
+        uint256 q = pf.quote(1, 1);
+        vm.prank(collector); pf.collect{value: q}(1, 1);
+        assertGt(pf.quote(1, 1), q);
+        uint256 q51 = pf.quote(1, 51);
+        vm.prank(collector); vm.expectRevert(ArtofficialPortfolio.NotOpen.selector);
+        pf.collect{value: q51}(1, 51);                    // per-transaction cap
         vm.warp(end + 2);
         vm.prank(collector); vm.expectRevert(ArtofficialPortfolio.NotOpen.selector);
-        pf.collect{value: 0.01 ether}(1, 1);
+        pf.collect{value: 1 ether}(1, 1);
     }
 
     function test_no_contributors_means_treasury_gets_their_half() public {

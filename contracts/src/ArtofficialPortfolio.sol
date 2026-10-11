@@ -20,8 +20,12 @@ contract ArtofficialPortfolio is ERC1155, ERC2981, Ownable, ReentrancyGuard {
     uint16 public contributorsBps = 5_000;
     uint16 public platformBps = 1_000; // the rest goes to the treasury
 
+    /// Each edition collected raises the next price by this much (basis points), like a rising floor.
+    uint16 public stepBps = 100; // 1% per edition
+    uint256 public constant MAX_PER_TX = 50;
+
     struct Portfolio {
-        uint128 price;          // wei per edition
+        uint128 price;          // wei for the first edition
         uint64 start;
         uint64 end;
         bytes32 contributors;   // Merkle root of (account, shares)
@@ -29,6 +33,8 @@ contract ArtofficialPortfolio is ERC1155, ERC2981, Ownable, ReentrancyGuard {
         bytes32 bookState;      // the Book's chain head at this milestone
         uint256 pool;           // contributors' share collected so far
         bool opened;
+        uint32 sold;            // editions collected so far
+        uint128 next;           // price of the next edition
     }
 
     address public bookSigner;
@@ -77,14 +83,27 @@ contract ArtofficialPortfolio is ERC1155, ERC2981, Ownable, ReentrancyGuard {
         if (portfolios[id].opened) return;
         bytes32 d = MessageHashUtils.toEthSignedMessageHash(openingDigest(id, price, start, end, contributors, totalShares, bookState));
         if (ECDSA.recover(d, sig) != bookSigner) revert BadSignature();
-        portfolios[id] = Portfolio(price, start, end, contributors, totalShares, bookState, 0, true);
+        portfolios[id] = Portfolio(price, start, end, contributors, totalShares, bookState, 0, true, 0, price);
         emit Opened(id, bookState, price, start, end, totalShares);
+    }
+
+    /// Price of the next `amount` editions: each one costs stepBps more than the one before.
+    function quote(uint256 id, uint256 amount) public view returns (uint256 total) {
+        (total,) = _quote(portfolios[id].next, amount);
+    }
+
+    function _quote(uint256 price, uint256 amount) internal view returns (uint256 total, uint256 nextPrice) {
+        for (uint256 k = 0; k < amount; k++) { total += price; price = (price * (BPS + stepBps)) / BPS; }
+        nextPrice = price;
     }
 
     function collect(uint256 id, uint256 amount) public payable {
         Portfolio storage p = portfolios[id];
-        if (!p.opened || block.timestamp < p.start || block.timestamp > p.end || amount == 0) revert NotOpen();
-        if (msg.value != uint256(p.price) * amount) revert WrongPayment();
+        if (!p.opened || block.timestamp < p.start || block.timestamp > p.end || amount == 0 || amount > MAX_PER_TX) revert NotOpen();
+        (uint256 total, uint256 nextPrice) = _quote(p.next, amount);
+        if (msg.value != total) revert WrongPayment();
+        p.sold += uint32(amount);
+        p.next = uint128(nextPrice);
         uint256 toContributors = p.totalShares > 0 ? (msg.value * contributorsBps) / BPS : 0;
         uint256 toPlatform = (msg.value * platformBps) / BPS;
         p.pool += toContributors;
@@ -141,6 +160,7 @@ contract ArtofficialPortfolio is ERC1155, ERC2981, Ownable, ReentrancyGuard {
         platform = platform_; treasury = treasury_; bookSigner = bookSigner_;
     }
     function setBaseURI(string calldata b) external onlyOwner { baseURI = b; }
+    function setStep(uint16 bps) external onlyOwner { stepBps = bps; }
     function setRoyalty(address receiver, uint96 bps) external onlyOwner { _setDefaultRoyalty(receiver, bps); }
 
     function supportsInterface(bytes4 i) public view override(ERC1155, ERC2981) returns (bool) {

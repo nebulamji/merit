@@ -2,7 +2,8 @@
 import { createWalletClient, createPublicClient, custom, http, formatEther, type Address, type Hex } from 'viem';
 import { base } from 'viem/chains';
 // @ts-ignore generated at build from contracts/out
-import { PORTFOLIO_ABI, MARKS_ABI, PORTFOLIO_BYTECODE, MARKS_BYTECODE } from './contracts.gen';
+import { PORTFOLIO_ABI, MARKS_ABI, PORTFOLIO_BYTECODE, MARKS_BYTECODE, DAYS_ABI, DAYS_BYTECODE } from './contracts.gen';
+import { parseEther } from 'viem';
 
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
 const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -29,7 +30,7 @@ async function renderCollect() {
   chain = await fetch('/api/chain').then((r) => r.json());
   const c = chain.config;
   $('#summary').textContent = `The Book has ${chain.marks} ${chain.marks === 1 ? 'mark' : 'marks'}. A Portfolio opens every ${c.every} marks; the next one opens at mark ${chain.next_at}.`;
-  $('#split').textContent = `Each Portfolio sells for ${formatEther(BigInt(c.price_wei))} ETH for ${c.hours} hours after it first opens. Every sale is split by the contract: ${c.split.contributors * 100}% to the people whose marks are in it (equal per mark, for those who set a wallet), ${c.split.platform * 100}% platform, ${c.split.treasury * 100}% treasury. Resales: ${c.split.royalty * 100}%.`;
+  $('#split').textContent = `Each Portfolio opens at ${formatEther(BigInt(c.price_wei))} ETH for ${c.hours} hours, and every edition collected raises the next price by ${c.step_bps / 100}%. Every sale is split by the contract: ${c.split.contributors * 100}% to the people whose marks are in it (equal per mark, for those who set a wallet), ${c.split.platform * 100}% platform, ${c.split.treasury * 100}% treasury. Resales: ${c.split.royalty * 100}%.`;
   const live = !!c.portfolio;
   $('#not-live').hidden = live;
   const list = $('#portfolios'); list.innerHTML = '';
@@ -44,8 +45,9 @@ async function renderCollect() {
         const w = await wallet(); const amt = BigInt((card.querySelector('.amt') as HTMLInputElement).value || '1');
         const o = await fetch(`/api/portfolio/${n}/opening`).then((r) => r.json());
         if (!o.sig) throw new Error(o.reason ?? 'not available');
+        const value = await priceFor(o, amt);
         const hash = await w.writeContract({ account: account!, chain: base, address: o.contract, abi: PORTFOLIO_ABI, functionName: 'openAndCollect',
-          args: [BigInt(o.id), BigInt(o.price), BigInt(o.start), BigInt(o.end), o.contributors, o.total_shares, o.book_state, o.sig, amt], value: BigInt(o.price) * amt });
+          args: [BigInt(o.id), BigInt(o.price), BigInt(o.start), BigInt(o.end), o.contributors, o.total_shares, o.book_state, o.sig, amt], value });
         await waitFor(hash); say(`Collected Portfolio No. ${n}.`);
       } catch (e) { fail(e); }
     });
@@ -63,6 +65,65 @@ async function renderCollect() {
   if (!chain.available) list.innerHTML = '<p class="small">No Portfolio yet. The first opens when the Book reaches its first milestone.</p>';
 }
 
+/** Each edition costs a little more than the last; ask the contract (or compute it for a Portfolio not yet opened). */
+async function priceFor(o: any, amt: bigint): Promise<bigint> {
+  const p = await pub.readContract({ address: o.contract, abi: PORTFOLIO_ABI, functionName: 'portfolios', args: [BigInt(o.id)] }) as unknown as any[];
+  if (p[7]) return await pub.readContract({ address: o.contract, abi: PORTFOLIO_ABI, functionName: 'quote', args: [BigInt(o.id), amt] }) as bigint;
+  const step = BigInt(await pub.readContract({ address: o.contract, abi: PORTFOLIO_ABI, functionName: 'stepBps' }) as number);
+  let price = BigInt(o.price), total = 0n;
+  for (let k = 0n; k < amt; k++) { total += price; price = (price * (10000n + step)) / 10000n; }
+  return total;
+}
+
+// ---------------- The Book, Today ----------------
+async function renderToday() {
+  const days = chain.config.days as Address | null;
+  const el = $('#today'); if (!el) return;
+  ($('#today-img') as HTMLImageElement).src = `/api/today.svg?t=${Date.now()}`;
+  if (!days) { $('#today-status').textContent = 'The daily auction is not switched on yet.'; for (const s of ['#bid-row', '#settle-row', '#claim-row']) $(s).hidden = true; return; }
+  const a = await pub.readContract({ address: days, abi: DAYS_ABI, functionName: 'auction' }) as unknown as any[];
+  const [id, amount, , end, bidder, settled] = a as [bigint, bigint, number, number, Address, boolean];
+  const reserve = await pub.readContract({ address: days, abi: DAYS_ABI, functionName: 'reservePrice' }) as bigint;
+  const now = Date.now() / 1000;
+  const minNext = amount === 0n ? reserve : amount + (amount * 500n) / 10000n;
+  $('#today-title').textContent = `Day ${id}`;
+  $('#today-status').textContent = now < Number(end)
+    ? `Current bid ${formatEther(amount)} ETH${bidder !== '0x0000000000000000000000000000000000000000' ? ` by ${bidder.slice(0, 6)}…` : ' (no bids yet)'} · ends ${new Date(Number(end) * 1000).toLocaleString()} · next bid at least ${formatEther(minNext)} ETH`
+    : settled ? 'Settled.' : `Day ${id} has ended. Anyone can settle it, which mints it to the winner and starts tomorrow's auction.`;
+  ($('#bid-amount') as HTMLInputElement).placeholder = formatEther(minNext);
+  $('#bid-row').hidden = now >= Number(end);
+  $('#settle-row').hidden = now < Number(end) || settled;
+  $('#bid').onclick = async () => {
+    try {
+      const w = await wallet(); const v = parseEther(($('#bid-amount') as HTMLInputElement).value || formatEther(minNext));
+      const hash = await w.writeContract({ account: account!, chain: base, address: days, abi: DAYS_ABI, functionName: 'bid', args: [id], value: v });
+      await waitFor(hash); say(`You are the high bidder on Day ${id}.`); renderToday();
+    } catch (e) { fail(e); }
+  };
+  $('#settle').onclick = async () => {
+    try {
+      const w = await wallet();
+      const s = await fetch(`/api/day/${id}/settlement`).then((r) => r.json());
+      if (!s.sig) throw new Error(s.reason);
+      const hash = await w.writeContract({ account: account!, chain: base, address: days, abi: DAYS_ABI, functionName: 'settle', args: [s.contributors, s.total_shares, s.book_state, s.sig] });
+      await waitFor(hash); say(`Day ${id} settled; Day ${Number(id) + 1} has begun.`); renderToday();
+    } catch (e) { fail(e); }
+  };
+  $('#claim-days').onclick = async () => {
+    try {
+      const w = await wallet(); const list = await fetch('/api/days').then((r) => r.json()); let n = 0;
+      for (const d of list) {
+        const c = await fetch(`/api/day/${d.id}/claim?address=${account}`).then((r) => r.json());
+        if (!c.proof) continue;
+        if (await pub.readContract({ address: days, abi: DAYS_ABI, functionName: 'claimed', args: [BigInt(d.id), c.account] })) continue;
+        const hash = await w.writeContract({ account: account!, chain: base, address: days, abi: DAYS_ABI, functionName: 'claim', args: [BigInt(d.id), c.account, c.shares, c.proof] });
+        await waitFor(hash); n++;
+      }
+      say(n ? `Claimed your share of ${n} ${n === 1 ? 'day' : 'days'}.` : 'Nothing to claim for this wallet.');
+    } catch (e) { fail(e); }
+  };
+}
+
 async function ownMark() {
   try {
     const w = await wallet(); const seq = Number(($('#seq') as HTMLInputElement).value);
@@ -76,10 +137,15 @@ async function ownMark() {
 async function withdraw() {
   try {
     const w = await wallet();
-    const owed = await pub.readContract({ address: chain.config.portfolio, abi: PORTFOLIO_ABI, functionName: 'owed', args: [account!] }) as bigint;
-    if (!owed) return say('Nothing owed to this wallet.');
-    const hash = await w.writeContract({ account: account!, chain: base, address: chain.config.portfolio, abi: PORTFOLIO_ABI, functionName: 'withdraw', args: [] });
-    await waitFor(hash); say(`Withdrew ${formatEther(owed)} ETH.`);
+    let total = 0n;
+    for (const [address, abi] of [[chain.config.portfolio, PORTFOLIO_ABI], [chain.config.days, DAYS_ABI]] as const) {
+      if (!address) continue;
+      const owed = await pub.readContract({ address, abi, functionName: 'owed', args: [account!] }) as bigint;
+      if (!owed) continue;
+      await waitFor(await w.writeContract({ account: account!, chain: base, address, abi, functionName: 'withdraw', args: [] }));
+      total += owed;
+    }
+    say(total ? `Withdrew ${formatEther(total)} ETH.` : 'Nothing owed to this wallet.');
   } catch (e) { fail(e); }
 }
 
@@ -96,8 +162,12 @@ async function deploy() {
     const h2 = await w.deployContract({ account: account!, chain: base, abi: MARKS_ABI, bytecode: MARKS_BYTECODE,
       args: [account!, account!, cfg.book_signer, BigInt(cfg.mark_fee_wei), 'https://merit.artofficial.computer/api/mark-token/'] });
     const r2 = await waitFor(h2);
-    $('#deployed').textContent = `Portfolios: ${r1.contractAddress}\nMarks: ${r2.contractAddress}`;
-    say('Deployed. Your wallet owns both contracts and receives the platform and treasury shares. Send these two addresses to Claude to switch the Book on.');
+    say('Deploying The Book, Today (confirm in your wallet; the first daily auction starts immediately)…');
+    const h3 = await w.deployContract({ account: account!, chain: base, abi: DAYS_ABI, bytecode: DAYS_BYTECODE,
+      args: [account!, account!, account!, cfg.book_signer, BigInt(cfg.day_reserve_wei), 'https://merit.artofficial.computer/api/day/'] });
+    const r3 = await waitFor(h3);
+    $('#deployed').textContent = `PORTFOLIO_ADDRESS=${r1.contractAddress}\nMARKS_ADDRESS=${r2.contractAddress}\nDAYS_ADDRESS=${r3.contractAddress}`;
+    say('Deployed. Your wallet owns all three contracts and receives the platform and treasury shares. Send these three lines to Claude to switch the Book on.');
   } catch (e) { fail(e); }
 }
 
@@ -105,4 +175,4 @@ document.querySelector('#connect')?.addEventListener('click', () => connect().ca
 document.querySelector('#own')?.addEventListener('click', ownMark);
 document.querySelector('#withdraw')?.addEventListener('click', withdraw);
 document.querySelector('#deploy')?.addEventListener('click', deploy);
-if (document.querySelector('#portfolios')) renderCollect().catch(fail);
+if (document.querySelector('#portfolios')) renderCollect().then(renderToday).catch(fail);

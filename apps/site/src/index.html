@@ -44,7 +44,22 @@
 <p>A certificate proves who signed a record of a session and that every number in it follows from a committed log. It is evidence of process, not proof of authorship. Its strength is cumulative: more sessions, more ways of capturing them, more people who recognize the work.</p>
 <p>Slips you correct and move past count in your favor. Slips you leave are part of your signature, never a penalty. Nothing is ever deleted: a correction points to what it corrects. A record that can be reset to look clean carries no information.</p>
 <p>The Book is a public register of certificates whose authors chose to inscribe them. Each mark changes the state of the whole: the drawing's turn is read from the latest link of a chain that runs back to Mark 0, the paper itself. Your browser re-reads the chain from the beginning every time this page loads.</p>
+<h2 id="art">The art pays the people in it</h2>
+<p>Merit is never for sale. The Book is. Each day the Book as it stands is auctioned as a single page, and at every hundred marks it becomes a Portfolio whose price rises with each edition collected. Half of every sale goes to the people whose marks are in it, an equal share per mark, paid by contract to the wallet each author chose. If you have a mark, you can also hold it in your own wallet, bound to you for good. <a href="/collect">Collect</a>.</p>
 <p>The recorder, the verifier and the specification are being released as open source under Apache-2.0. Read <a href="/paper">the paper</a>.</p>
+<section id="notify-box">
+<h2>One email, when it matters</h2>
+<p>Get an email when the Merit app is released and when Portfolio No. 1 opens. Only about Merit; unsubscribe any time; never shared.</p>
+<form id="notify" class="row"><input id="notify-email" type="email" required placeholder="you@example.com" autocomplete="email"><input name="website" id="notify-hp" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true"><label class="small"><input id="notify-consent" type="checkbox" required> Email me about Merit</label><button>Notify me</button></form>
+<p id="notify-result" class="small" aria-live="polite"></p>
+</section>
+<script>
+document.getElementById('notify').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/notify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: document.getElementById('notify-email').value, consent: document.getElementById('notify-consent').checked, website: document.getElementById('notify-hp').value }) }).then((x) => x.json()).catch(() => ({ ok: false, reason: 'network error' }));
+  document.getElementById('notify-result').textContent = r.ok ? 'Done. One email when it matters.' : `Not saved: ${r.reason}.`;
+});
+</script>
 </main>
 <footer><span>Evidence of process, not proof of authorship.</span></footer>
 <script type="module" src="/app.js"></script>

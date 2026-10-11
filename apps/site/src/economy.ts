@@ -3,11 +3,11 @@
 import { canonicalJSON } from '@merit/spec';
 import { ed25519 } from '@noble/curves/ed25519';
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils';
-import { ethSign, leafOf, merkle, portfolioDigest, markDigest, addressOf } from './eth';
+import { ethSign, leafOf, merkle, portfolioDigest, markDigest, dayDigest, addressOf } from './eth';
 import { bookSVG, type MarkLike } from './art';
 
 export interface EconomyEnv {
-  CHAIN_ID?: string; PORTFOLIO_ADDRESS?: string; MARKS_ADDRESS?: string;
+  CHAIN_ID?: string; DAY_RESERVE_WEI?: string; PORTFOLIO_ADDRESS?: string; MARKS_ADDRESS?: string; DAYS_ADDRESS?: string; RPC_URL?: string;
   PORTFOLIO_EVERY?: string; PORTFOLIO_PRICE_WEI?: string; PORTFOLIO_HOURS?: string; MARK_FEE_WEI?: string;
   BOOK_SIGNER_KEY?: string;
 }
@@ -16,10 +16,14 @@ export const config = (env: EconomyEnv) => ({
   chain_id: Number(env.CHAIN_ID ?? 8453),
   portfolio: env.PORTFOLIO_ADDRESS || null,
   marks: env.MARKS_ADDRESS || null,
+  days: env.DAYS_ADDRESS || null,
+  rpc: env.RPC_URL || 'https://mainnet.base.org',
   every: Number(env.PORTFOLIO_EVERY ?? 100),
   price_wei: env.PORTFOLIO_PRICE_WEI ?? '2000000000000000',
   hours: Number(env.PORTFOLIO_HOURS ?? 24),
   mark_fee_wei: env.MARK_FEE_WEI ?? '200000000000000',
+  day_reserve_wei: env.DAY_RESERVE_WEI ?? '1000000000000000',
+  step_bps: 100,
   book_signer: env.BOOK_SIGNER_KEY ? addressOf(env.BOOK_SIGNER_KEY) : null,
   split: { contributors: 0.5, platform: 0.1, treasury: 0.4, royalty: 0.05 },
 });
@@ -88,3 +92,38 @@ export const markMeta = (seq: number, id: string) => ({
 export const portfolioSVG = (marks: MarkLike[], head: string, genesis: string, n: number) => bookSVG(marks, head, genesis, { title: `artofficial Portfolio No. ${n}` });
 export const markSVG = (m: MarkLike, genesis: string) => bookSVG([{ ...m, by_seq: -1 }], m.id.replace(/^merit_/, '').padEnd(64, '0'), genesis, { size: 600, title: `artofficial Mark` });
 export { bytesToHex };
+
+// ---------------- The Book, Today (daily auction) ----------------
+export interface DaySnapshot { id: number; from_seq: number; to_seq: number; root: string; total_shares: number; book_state: string; contributors: Record<string, number>; created: number }
+
+/** A day's page: every mark inscribed since the last settled day, one share per mark whose author set a wallet. */
+export function daySnapshot(id: number, fromSeq: number, marks: { seq: number; public_key: string; chain: string }[], wallets: Map<string, string>, genesis: string, nowSec: number): DaySnapshot {
+  const day = marks.filter((m) => m.seq > fromSeq);
+  const contributors: Record<string, number> = {};
+  for (const m of day) { const a = wallets.get(m.public_key); if (a) contributors[a] = (contributors[a] ?? 0) + 1; }
+  const entries = Object.entries(contributors);
+  const t = merkle(entries.map(([a, s]) => leafOf(a, s)));
+  const last = marks[marks.length - 1];
+  return { id, from_seq: fromSeq, to_seq: last?.seq ?? fromSeq, root: t.root, total_shares: entries.reduce((x, [, s]) => x + s, 0), book_state: '0x' + (last?.chain ?? genesis), contributors, created: nowSec };
+}
+
+export function settlement(s: DaySnapshot, env: EconomyEnv) {
+  const cfg = config(env);
+  if (!cfg.days || !env.BOOK_SIGNER_KEY) return null;
+  return { id: s.id, contributors: s.root, total_shares: s.total_shares, book_state: s.book_state, contract: cfg.days, chain_id: cfg.chain_id,
+    sig: ethSign(dayDigest(cfg.chain_id, cfg.days, s.id, s.root, s.total_shares, s.book_state), env.BOOK_SIGNER_KEY) };
+}
+
+export function dayClaim(s: DaySnapshot, address: string) {
+  const entries = Object.entries(s.contributors);
+  const i = entries.findIndex(([a]) => a === address.toLowerCase());
+  if (i < 0) return null;
+  return { id: s.id, account: entries[i][0], shares: entries[i][1], proof: merkle(entries.map(([a, sh]) => leafOf(a, sh))).proof(i) };
+}
+
+export const dayMeta = (s: DaySnapshot) => ({
+  name: `The Book, Day ${s.id}`,
+  description: `The Book as it stood when day ${s.id} closed${s.to_seq > s.from_seq ? `, with marks ${s.from_seq + 1}–${s.to_seq} written that day` : ''}. Half of the winning bid went to the people who wrote on it.`,
+  image: `${SITE}/api/day/${s.id}.svg`, external_url: `${SITE}/collect`,
+  attributes: [{ trait_type: 'Day', value: s.id }, { trait_type: 'Marks that day', value: s.to_seq - s.from_seq }, { trait_type: 'Book state', value: s.book_state }],
+});

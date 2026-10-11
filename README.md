@@ -51,6 +51,10 @@ Build the CLI bundle: `pnpm exec esbuild packages/verify/src/cli.ts --bundle --p
 
 It is **evidence of** a process, not proof of intent or authorship by a particular person. It shows: this key signed this record of how a session unfolded; the numbers derive deterministically from a committed event log; the record existed no later than its Bitcoin block. See `docs/THREAT-MODEL.md`.
 
+## Contributing
+
+Build Merit, earn your mark: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Apache-2.0. See `docs/PRIOR-ART.md` for the dated public record of these ideas.

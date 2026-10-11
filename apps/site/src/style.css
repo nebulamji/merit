@@ -55,6 +55,8 @@ article ol { padding-left: 22px; font-size: 16px; }
 #note[data-state="bad"] { color: var(--bad); } #note[data-state="ok"] { color: var(--ok); }
 .pcard { display: grid; grid-template-columns: 160px 1fr; gap: 16px; align-items: start; border-top: 1px solid var(--rule); padding: 16px 0; }
 .pcard img { width: 160px; height: 160px; border: 1px solid var(--rule); }
-input[type=number] { font: inherit; width: 120px; padding: 6px 8px; border: 1px solid var(--rule); background: var(--field); color: var(--ink); border-radius: 6px; }
+input[type=number], #bid-amount { font: inherit; width: 120px; padding: 6px 8px; border: 1px solid var(--rule); background: var(--field); color: var(--ink); border-radius: 6px; }
 pre { white-space: pre-wrap; word-break: break-all; }
 @media (max-width: 560px) { .pcard { grid-template-columns: 1fr; } .pcard img { width: 100%; height: auto; } }
+#notify input[type=email] { font: inherit; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--field); color: var(--ink); min-width: 0; flex: 1 1 220px; }
+#notify-box { position: relative; }

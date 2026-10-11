@@ -4,11 +4,13 @@ import { shapeOf } from './shape';
 import { blockMerkleRoot } from '../../../packages/verify/src/ots';
 import { RULES, FOUNDER, EARN, workFloor, anchorClaim, recognitionClaim, earnedClaim, type Proved } from './qualify';
 import type { Recognition } from '@merit/attest';
+import { readAuction } from './eth';
+import { daySnapshot, settlement, dayClaim, dayMeta, type DaySnapshot } from './economy';
 import { config, verifyWallet, snapshot, opening, claimProof, markClaim, portfolioMeta, markMeta, portfolioSVG, markSVG, type EconomyEnv, type Snapshot, type WalletBinding } from './economy';
 
 import { DurableObject } from 'cloudflare:workers';
 
-interface Env extends EconomyEnv { BOOK: DurableObjectNamespace<Book>; ASSETS: Fetcher; FOUNDER?: string }
+interface Env extends EconomyEnv { ADMIN_TOKEN?: string; BOOK: DurableObjectNamespace<Book>; ASSETS: Fetcher; FOUNDER?: string }
 
 /** Mark 0 is the paper itself: the sha256 of the whitepaper as published here. Set at build. */
 declare const GENESIS: string;
@@ -33,6 +35,8 @@ CREATE TABLE IF NOT EXISTS rate (bucket TEXT PRIMARY KEY, n INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS blocks (height INTEGER PRIMARY KEY, root TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS wallets (public_key TEXT PRIMARY KEY, address TEXT NOT NULL, binding TEXT NOT NULL, set_utc TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS portfolios (n INTEGER PRIMARY KEY, snapshot TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS days (id INTEGER PRIMARY KEY, snapshot TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS notify (email TEXT PRIMARY KEY, topics TEXT NOT NULL, created_utc TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, certificate TEXT NOT NULL, ots TEXT NOT NULL, shape TEXT NOT NULL, requested_utc TEXT NOT NULL);`;
 const REQUEST_DAYS = 30;
 const MAX_OPEN_REQUESTS = 500;
@@ -103,6 +107,41 @@ export class Book extends DurableObject {
       .map((s) => ({ n: s.n, marks: s.marks, start: s.start, end: s.end, contributors: Object.keys(s.contributors).length, total_shares: s.total_shares, price_wei: s.price_wei }));
     return { config: cfg, marks: count, available: Math.floor(count / cfg.every), next_at: (Math.floor(count / cfg.every) + 1) * cfg.every, opened };
   }
+  /** Email list: only people who asked, only about Merit. Never shown publicly. */
+  notify(email: string, topics: string[], ipBucket: string) {
+    const n = (this.sql.exec('INSERT INTO rate (bucket, n) VALUES (?, 1) ON CONFLICT(bucket) DO UPDATE SET n = n + 1 RETURNING n', 'notify|' + ipBucket).one() as any).n;
+    if (n > 5) return { ok: false, status: 429, reason: 'slow down' };
+    this.sql.exec('INSERT INTO notify (email, topics, created_utc) VALUES (?,?,?) ON CONFLICT(email) DO UPDATE SET topics = excluded.topics', email, JSON.stringify(topics), new Date().toISOString());
+    return { ok: true };
+  }
+  unnotify(email: string) { this.sql.exec('DELETE FROM notify WHERE email = ?', email); return { ok: true }; }
+  notifyExport() { return this.sql.exec('SELECT email, topics, created_utc FROM notify ORDER BY created_utc').toArray(); }
+
+  /** Freeze day `id` once its auction has ended on chain: the marks since the previous day. */
+  async day(id: number, verifyChain: boolean): Promise<DaySnapshot | { error: string }> {
+    const have = (this.sql.exec('SELECT snapshot FROM days WHERE id = ?', id).toArray()[0] as any)?.snapshot;
+    if (have) return JSON.parse(have);
+    if (!verifyChain) return { error: `day ${id} has not been settled yet` };
+    const cfg = config(this.env);
+    const lastId = (this.sql.exec('SELECT MAX(id) AS m FROM days').one() as any).m ?? 0;
+    if (id !== lastId + 1) return { error: `day ${lastId + 1} must be settled first` };
+    {
+      if (!cfg.days) return { error: 'the daily auction is not deployed yet' };
+      const a = await readAuction(cfg.rpc, cfg.days);
+      if (a.id !== id) return { error: `the current auction is day ${a.id}` };
+      if (a.chainTime < a.end) return { error: `day ${id} is still open` };
+    }
+    const prev = lastId ? (JSON.parse((this.sql.exec('SELECT snapshot FROM days WHERE id = ?', lastId).one() as any).snapshot) as DaySnapshot).to_seq : 0;
+    const marks = this.sql.exec('SELECT seq, public_key, chain FROM inscriptions ORDER BY seq').toArray() as any[];
+    const wallets = new Map((this.sql.exec('SELECT public_key, address FROM wallets').toArray() as any[]).map((w) => [w.public_key, w.address] as const));
+    const s = daySnapshot(id, prev, marks, wallets, GENESIS, Math.floor(Date.now() / 1000));
+    this.sql.exec('INSERT INTO days (id, snapshot) VALUES (?, ?)', id, JSON.stringify(s));
+    return s;
+  }
+  daysList() {
+    return (this.sql.exec('SELECT snapshot FROM days ORDER BY id').toArray() as any[]).map((r) => { const s = JSON.parse(r.snapshot) as DaySnapshot; return { id: s.id, marks: s.to_seq - s.from_seq, contributors: Object.keys(s.contributors).length }; });
+  }
+
   marksUpTo(n: number) {
     return (this.sql.exec('SELECT seq, id, shape, by_seq, chain FROM inscriptions WHERE seq <= ? ORDER BY seq', n).toArray() as any[]).map((m) => ({ ...m, shape: JSON.parse(m.shape) }));
   }
@@ -263,6 +302,43 @@ export default {
       if (pm[2] === '/opening') { const o = opening(s, env); return o ? json(o) : json({ ok: false, reason: 'contracts not deployed yet' }, 503); }
       if (pm[2] === '/claim') { const c = claimProof(s, url.searchParams.get('address') ?? ''); return c ? json(c) : json({ ok: false, reason: 'that address has no share in this Portfolio' }, 404); }
       const { contributors, ...pub } = s; return json({ ...pub, contributors: Object.keys(contributors).length });
+    }
+    if (url.pathname === '/api/notify' && req.method === 'POST') {
+      let body: any; try { body = await req.json(); } catch { return json({ ok: false, reason: 'not JSON' }, 400); }
+      if (body?.website) return json({ ok: true }); // honeypot: bots fill hidden fields
+      const email = String(body?.email ?? '').trim().toLowerCase();
+      if (!/^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/.test(email)) return json({ ok: false, reason: 'that does not look like an email address' }, 422);
+      if (body?.consent !== true) return json({ ok: false, reason: 'consent required' }, 400);
+      const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+      const out: any = await (book(env) as any).notify(email, ['release', 'portfolio-1'], sha256Hex(`${ip}|${new Date().toISOString().slice(0, 13)}`));
+      const { status, ...rest } = out; return json(rest, status ?? 200);
+    }
+    if (url.pathname === '/api/unsubscribe' && req.method === 'POST') {
+      let body: any; try { body = await req.json(); } catch { return json({ ok: false }, 400); }
+      return json(await (book(env) as any).unnotify(String(body?.email ?? '').trim().toLowerCase()));
+    }
+    if (url.pathname === '/api/notify/export') {
+      const auth = req.headers.get('authorization') ?? '';
+      if (!env.ADMIN_TOKEN || auth !== `Bearer ${env.ADMIN_TOKEN}`) return json({ ok: false }, 404);
+      return json(await (book(env) as any).notifyExport());
+    }
+    if (url.pathname === '/api/days') return json(await (book(env) as any).daysList());
+    if (url.pathname === '/api/today.svg') {
+      const b: any = await (book(env) as any).list();
+      return new Response(portfolioSVG(b.marks, b.head, GENESIS, 0), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' } });
+    }
+    pm = url.pathname.match(/^\/api\/day\/(\d+)(\.json|\.svg|\/settlement|\/claim)$/);
+    if (pm) {
+      const id = Number(pm[1]);
+      const s: any = await (book(env) as any).day(id, pm[2] === '/settlement');
+      if (s.error) return json({ ok: false, reason: s.error }, 409);
+      if (pm[2] === '.json') return json(dayMeta(s));
+      if (pm[2] === '.svg') {
+        const marks = await (book(env) as any).marksUpTo(s.to_seq);
+        return new Response(portfolioSVG(marks, marks.length ? marks[marks.length - 1].chain : GENESIS, GENESIS, id), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
+      }
+      if (pm[2] === '/settlement') { const o = settlement(s, env); return o ? json(o) : json({ ok: false, reason: 'not deployed' }, 503); }
+      const c = dayClaim(s, url.searchParams.get('address') ?? ''); return c ? json(c) : json({ ok: false, reason: 'that address has no share of this day' }, 404);
     }
     pm = url.pathname.match(/^\/api\/mark-token\/(\d+)(\.json|\.svg|\/claim)$/);
     if (pm) {

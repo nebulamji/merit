@@ -60,3 +60,18 @@ export function merkle(leaves: Uint8Array[]): { root: string; proof: (i: number)
     },
   };
 }
+
+export const dayDigest = (chainId: number, contract: string, id: number, root: string, totalShares: number, bookState: string) =>
+  keccak(abiEncode(chainId, contract, id, root, totalShares, bookState));
+
+/** Read the current daily auction straight from the chain: (id, amount, start, end, bidder, settled). */
+export async function readAuction(rpc: string, contract: string): Promise<{ id: number; end: number; settled: boolean; amount: bigint; bidder: string; chainTime: number }> {
+  const selector = '0x' + bytesToHex(keccak(utf8ToBytes('auction()')).slice(0, 4));
+  const r = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: contract, data: selector }, 'latest'] }) });
+  const j: any = await r.json();
+  const h = strip(j.result ?? ''); if (h.length < 64 * 6) throw new Error('auction unreadable');
+  const w = (i: number) => BigInt('0x' + h.slice(i * 64, i * 64 + 64));
+  const b: any = await (await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'eth_getBlockByNumber', params: ['latest', false] }) })).json();
+  const chainTime = Number(BigInt(b.result.timestamp));
+  return { chainTime, id: Number(w(0)), amount: w(1), end: Number(w(3)), bidder: '0x' + h.slice(4 * 64 + 24, 5 * 64), settled: w(5) === 1n };
+}
