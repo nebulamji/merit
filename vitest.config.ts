@@ -10,6 +10,7 @@ export default defineConfig({
       '@merit/verify': p('./packages/verify/src/index.ts'),
       '@merit/review': p('./packages/review/src/index.ts'),
       '@merit/score': p('./packages/score/src/index.ts'),
+      '@merit/agentauth': p('./packages/agentauth/src/index.ts'),
       opentimestamps: p('./packages/verify/node_modules/opentimestamps/index.js'),
     },
   },
