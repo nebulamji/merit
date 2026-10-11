@@ -11,3 +11,9 @@ Merit separates three layers, and governs them differently.
 - A score that never drops is worthless; standards must be able to go down.
 - No standard may use emotion inference, protected traits, or data the person didn't choose to certify.
 - Merit records are not transferable. Merit you can buy isn't merit.
+
+## Standards log
+| standard | status | notes |
+|---|---|---|
+| `composition/0.1-experimental` | retired 2026-10-10 | Penalized fluent writers: weighted word-level planning pauses heavily. On the first real composing session it read "mixed" (false negative). |
+| `composition/0.2-experimental` | active, uncalibrated | Weights rework (deletions per 100 chars), uneven rhythm, revisions and thinking breaks at boundaries; word-level planning down-weighted; refuses to judge under 50 words. Calibration needed: volunteers' composing AND retyping samples, published error rates, before any claim. |

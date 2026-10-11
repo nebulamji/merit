@@ -1,4 +1,4 @@
-import type { KeyEvent, MeritEvent, Metrics, StyleCounts } from '@merit/spec';
+import type { KeyEvent, MeritEvent, Metrics, RhythmStats, StyleCounts } from '@merit/spec';
 
 const BURST_GAP_MS = 1000;
 const ACTIVE_GAP_MS = 5000;
@@ -185,6 +185,7 @@ export function deriveKeyMetrics(keys: KeyEvent[]): Metrics {
 
   const final_est = netTyped + chars_pasted;
   const style = styleOfKeys(keys);
+  const rhythm = rhythmOfKeys(keys, word_changes + restructures + revisions, deletions, chars_typed);
   const first = keys[0]?.t ?? 0;
   const last = keys[keys.length - 1]?.t ?? 0;
   return {
@@ -204,6 +205,50 @@ export function deriveKeyMetrics(keys: KeyEvent[]): Metrics {
     forgiveness: runs === 0 ? 1 : Math.round((absorbed / runs) * 1000) / 1000,
     source: 'keys',
     style,
+    rhythm,
+  };
+}
+
+const median = (xs: number[]) => {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+const round3 = (x: number) => Math.round(x * 1000) / 1000;
+
+/** Timing structure of composition, from key classes only. */
+export function rhythmOfKeys(keys: KeyEvent[], revisionEvents: number, deletions = 0, charsTyped = 0): RhythmStats {
+  const isLetter = (k: string) => k === 'char' || k === 'upper' || k === 'digit';
+  const within: number[] = [];
+  const preWord: number[] = [];
+  let words = 0, longPauses = 0, boundaryLong = 0;
+  for (let i = 1; i < keys.length; i++) {
+    const a = keys[i - 1], b = keys[i];
+    const gap = b.t - a.t;
+    const boundary = a.k === 'space' || a.k === 'enter' || a.k === 'punct';
+    if (isLetter(b.k)) {
+      if (isLetter(a.k)) within.push(gap);
+      else if (a.k === 'space' || a.k === 'enter') { preWord.push(gap); }
+    }
+    if (isLetter(b.k) && !isLetter(a.k)) words++;
+    if (gap > 2000) { longPauses++; if (boundary) boundaryLong++; }
+  }
+  if (keys.length && isLetter(keys[0].k)) words++;
+  const mw = median(within);
+  const mean = within.length ? within.reduce((s, x) => s + x, 0) / within.length : 0;
+  const sd = within.length ? Math.sqrt(within.reduce((s, x) => s + (x - mean) ** 2, 0) / within.length) : 0;
+  const mp = median(preWord);
+  return {
+    within_word_median_ms: Math.round(mw),
+    pre_word_median_ms: Math.round(mp),
+    planning_ratio: mw > 0 ? round3(mp / mw) : 0,
+    iki_cv: mean > 0 ? round3(sd / mean) : 0,
+    boundary_pause_share: longPauses ? round3(boundaryLong / longPauses) : 0,
+    revisions_per_100_words: words ? round3((revisionEvents / words) * 100) : 0,
+    words,
+    deletions_per_100_chars: charsTyped ? round3((deletions / charsTyped) * 100) : 0,
+    long_pauses_per_100_words: words ? round3((longPauses / words) * 100) : 0,
   };
 }
 

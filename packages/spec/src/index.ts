@@ -71,6 +71,32 @@ export interface Metrics {
    * Decisions and correction kinds only, never words.
    */
   review?: { offered: number; accepted: number; kept: number; kept_ratio_by_kind: Record<string, number> };
+  /**
+   * Rhythm (no characters): how time is spent between keys. Raw inputs to scoring standards such as
+   * composing-vs-transcribing; never a verdict by itself.
+   */
+  rhythm?: RhythmStats;
+}
+
+export interface RhythmStats {
+  /** median gap between keys inside a word, ms */
+  within_word_median_ms: number;
+  /** median gap before the first key of a new word (after a space/enter), ms */
+  pre_word_median_ms: number;
+  /** pre_word / within_word: planning pauses at word boundaries */
+  planning_ratio: number;
+  /** coefficient of variation of within-word gaps (steadiness; lower = more uniform) */
+  iki_cv: number;
+  /** share of pauses over 2 s that fall at a boundary (before a word or after punctuation) */
+  boundary_pause_share: number;
+  /** word changes + restructures + revisions per 100 words typed */
+  revisions_per_100_words: number;
+  /** words typed (space/enter-delimited runs of characters) */
+  words: number;
+  /** deletions per 100 characters typed (how much gets reworked) */
+  deletions_per_100_chars: number;
+  /** pauses over 2 s per 100 words (thinking breaks) */
+  long_pauses_per_100_words: number;
 }
 
 export interface StyleCounts {

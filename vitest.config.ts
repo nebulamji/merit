@@ -9,6 +9,7 @@ export default defineConfig({
       '@merit/attest': p('./packages/attest/src/index.ts'),
       '@merit/verify': p('./packages/verify/src/index.ts'),
       '@merit/review': p('./packages/review/src/index.ts'),
+      '@merit/score': p('./packages/score/src/index.ts'),
       opentimestamps: p('./packages/verify/node_modules/opentimestamps/index.js'),
     },
   },
