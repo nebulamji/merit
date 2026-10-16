@@ -112,6 +112,7 @@ Certificates are free to make, free to anchor and free to inscribe. [The Book](h
 | [ANCHORS](docs/ANCHORS.md) | How timestamps are produced and checked |
 | [GOVERNANCE](docs/GOVERNANCE.md) | How decisions are made |
 | [PRIOR-ART](docs/PRIOR-ART.md) | The dated public record of these ideas |
+| [PROVENANCE](docs/PROVENANCE.md) | When Merit was made, checkable against Bitcoin (`node scripts/verify-anchors.mjs`) |
 
 ## Contributing
 

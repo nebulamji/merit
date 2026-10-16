@@ -262,15 +262,35 @@ fn recording_status(state: tauri::State<Shared>) -> bool {
 }
 
 fn open_dashboard(app: &AppHandle) {
+    // A menu-bar-only (Accessory) app is never the active app, so its window cannot take focus and the first click is spent
+    // activating it instead of pressing the button. While the dashboard is open the app is a normal app; it goes back to the
+    // menu bar when the window closes.
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     if let Some(w) = app.get_webview_window("dashboard") {
         let _ = w.show();
+        let _ = w.unminimize();
         let _ = w.set_focus();
         return;
     }
-    let _ = WebviewWindowBuilder::new(app, "dashboard", WebviewUrl::App("index.html".into()))
+    #[allow(unused_mut)]
+    let mut b = WebviewWindowBuilder::new(app, "dashboard", WebviewUrl::App("index.html".into()))
         .title("Merit")
         .inner_size(720.0, 560.0)
-        .build();
+        .focused(true);
+    // Clicking an inactive window must also click through to the page.
+    #[cfg(target_os = "macos")]
+    { b = b.accept_first_mouse(true); }
+    if let Ok(w) = b.build() {
+        let _ = w.set_focus();
+        #[cfg(target_os = "macos")]
+        {
+            let handle = app.clone();
+            w.on_window_event(move |e| {
+                if matches!(e, tauri::WindowEvent::Destroyed) { let _ = handle.set_activation_policy(tauri::ActivationPolicy::Accessory); }
+            });
+        }
+    }
 }
 
 fn main() {

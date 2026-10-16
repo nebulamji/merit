@@ -3392,8 +3392,14 @@
     box.select();
     note("Recognition signed. Send the text above to its author; it is also saved in ~/.merit/recognitions.");
   }
-  window.addEventListener("error", (e) => invoke("log", { msg: `error: ${e.message}` }));
-  window.addEventListener("unhandledrejection", (e) => invoke("log", { msg: `rejection: ${e.reason?.message ?? e.reason}` }));
+  window.addEventListener("error", (e) => {
+    invoke("log", { msg: `error: ${e.message}` });
+    note(`Something went wrong: ${e.message}`, true);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    invoke("log", { msg: `rejection: ${e.reason?.message ?? e.reason}` });
+    note(`Something went wrong: ${e.reason?.message ?? e.reason}`, true);
+  });
   var draining = false;
   async function drain() {
     if (draining) return;
@@ -3420,20 +3426,40 @@
   }
   async function main() {
     $("#set-wallet").onclick = setWallet;
-    $("#me").textContent = `Your key: ${(await invoke("public_key")).slice(0, 16)}\u2026`;
     $("#recognize").onclick = recognizeOther;
-    await drain();
-    renderWaiting();
+    let me = "";
     try {
-      await listen("sign-queued", () => drain());
+      me = await invoke("public_key");
+      $("#me").textContent = `Your key: ${me.slice(0, 16)}\u2026`;
+    } catch (e) {
+      note(`Could not read your key: ${e.message ?? e}`, true);
+    }
+    try {
+      await drain();
+    } catch (e) {
+      note(`Signing failed: ${e.message ?? e}`, true);
+    }
+    renderWaiting().catch(() => {
+    });
+    try {
+      await listen("sign-queued", () => drain().catch((e) => note(`Signing failed: ${e.message ?? e}`, true)));
     } catch (e) {
       invoke("log", { msg: `listen failed: ${e.message ?? e}` });
     }
-    const list = await render();
-    await maintain(list);
+    let list = [];
+    try {
+      list = await render();
+    } catch (e) {
+      note(`Could not list your sessions: ${e.message ?? e}`, true);
+    }
+    maintain(list).catch(() => {
+    });
     setInterval(async () => {
-      maintain(await render());
-      renderWaiting();
+      try {
+        maintain(await render());
+        renderWaiting();
+      } catch {
+      }
     }, 10 * 6e4);
   }
   main();

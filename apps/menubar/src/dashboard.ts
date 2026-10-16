@@ -215,8 +215,8 @@ async function recognizeOther() {
   note('Recognition signed. Send the text above to its author; it is also saved in ~/.merit/recognitions.');
 }
 
-window.addEventListener('error', (e) => invoke('log', { msg: `error: ${e.message}` }));
-window.addEventListener('unhandledrejection', (e: any) => invoke('log', { msg: `rejection: ${e.reason?.message ?? e.reason}` }));
+window.addEventListener('error', (e) => { invoke('log', { msg: `error: ${e.message}` }); note(`Something went wrong: ${e.message}`, true); });
+window.addEventListener('unhandledrejection', (e: any) => { invoke('log', { msg: `rejection: ${e.reason?.message ?? e.reason}` }); note(`Something went wrong: ${e.reason?.message ?? e.reason}`, true); });
 
 let draining = false;
 async function drain() {
@@ -237,14 +237,16 @@ async function setWallet() {
 }
 
 async function main() {
+  // Bind every control FIRST, before anything that can fail or wait: a slow or failing startup must never leave the buttons dead.
   $('#set-wallet').onclick = setWallet;
-  $('#me').textContent = `Your key: ${(await invoke('public_key') as string).slice(0, 16)}…`;
   $('#recognize').onclick = recognizeOther;
-  await drain();
-  renderWaiting();
-  try { await listen('sign-queued', () => drain()); } catch (e) { invoke('log', { msg: `listen failed: ${(e as Error).message ?? e}` }); }
-  const list = await render();
-  await maintain(list);
-  setInterval(async () => { maintain(await render()); renderWaiting(); }, 10 * 60_000);
+  let me = '';
+  try { me = await invoke('public_key') as string; $('#me').textContent = `Your key: ${me.slice(0, 16)}…`; } catch (e) { note(`Could not read your key: ${(e as Error).message ?? e}`, true); }
+  try { await drain(); } catch (e) { note(`Signing failed: ${(e as Error).message ?? e}`, true); }
+  renderWaiting().catch(() => {});
+  try { await listen('sign-queued', () => drain().catch((e) => note(`Signing failed: ${(e as Error).message ?? e}`, true))); } catch (e) { invoke('log', { msg: `listen failed: ${(e as Error).message ?? e}` }); }
+  let list: Row[] = []; try { list = await render(); } catch (e) { note(`Could not list your sessions: ${(e as Error).message ?? e}`, true); }
+  maintain(list).catch(() => {});
+  setInterval(async () => { try { maintain(await render()); renderWaiting(); } catch { /* try again next time */ } }, 10 * 60_000);
 }
 main();
