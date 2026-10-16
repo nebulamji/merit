@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="Merit: evidence of how work was done">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0b0b"/><stop offset="1" stop-color="#1a1a1a"/></linearGradient>
+    <linearGradient id="arc" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#8a8a8a"/></linearGradient>
+  </defs>
+  <rect width="1280" height="320" rx="20" fill="url(#bg)"/>
+  <g transform="translate(160 160)">
+    <circle r="86" fill="none" stroke="#2a2a2a" stroke-width="14"/>
+    <circle r="86" fill="none" stroke="url(#arc)" stroke-width="14" stroke-linecap="round" stroke-dasharray="390 540" transform="rotate(-90)"/>
+    <circle r="7" fill="#ffffff"/>
+  </g>
+  <text x="330" y="168" fill="#ffffff" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="96" font-weight="700" letter-spacing="-2">Merit</text>
+  <text x="334" y="222" fill="#b5b5b5" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="30">Evidence of how work was done.</text>
+  <text x="334" y="266" fill="#7a7a7a" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="20">on your device · signed by you · anchored in Bitcoin · checkable by anyone</text>
+</svg>

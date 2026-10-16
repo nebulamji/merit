@@ -1,0 +1,11 @@
+name: Feature request
+description: An idea for Merit
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes: { label: The idea, description: What problem does it solve and for whom }
+    validations: { required: true }
+  - type: textarea
+    id: privacy
+    attributes: { label: Privacy, description: Does it need to see anything that is not already captured? }
