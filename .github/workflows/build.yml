@@ -77,4 +77,9 @@ jobs:
       - name: Draft release with every installer attached
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ github.ref_name }}" installers/* --repo "${{ github.repository }}" --draft --generate-notes --title "Merit ${{ github.ref_name }}"
+        run: |
+          # artifacts keep their bundle folders: attach the installer FILES, not the folders
+          mapfile -t files < <(find installers -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \))
+          [ ${#files[@]} -gt 0 ] || { echo "no installers found"; exit 1; }
+          shasum -a 256 "${files[@]}" | sed 's#installers/.*/##' > SHA256SUMS.txt
+          gh release create "${{ github.ref_name }}" "${files[@]}" SHA256SUMS.txt --repo "${{ github.repository }}" --draft --generate-notes --title "Merit ${{ github.ref_name }}"
