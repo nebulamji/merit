@@ -13,9 +13,27 @@
 <body>
 <header><a class="word" href="/">artofficial</a><nav><a href="#verify">Inscribe</a><a href="#rules">Rules</a><a href="#what">What this is</a><a href="/collect">Collect</a><a href="/paper">Paper</a></nav></header>
 
-<div class="stage" id="top"><canvas id="book" aria-label="The Book: a generative drawing of every inscribed certificate, in order"></canvas><div id="tip" class="mono" hidden></div></div>
+<section class="hero">
+<p class="kicker mono">The Book · work, as it happens</p>
+<h2 class="hero-title">Watch work being made.</h2>
+<p class="hero-sub">Each drawing below is one real piece of work, replayed from how it was made. The line is the hand: it moves forward as someone types, doubles back when they delete, and lifts when they pause. At the end, they sign it.</p>
+</section>
+<div class="stage" id="top"><canvas id="book" aria-label="The Book: each mark is one person's piece of work, drawn from how it was made and signed with their key"></canvas><div id="tip" class="mono" hidden></div></div>
+<p id="now" class="mono" aria-live="polite"></p>
+<canvas id="keys" aria-hidden="true"></canvas>
+<p class="small center keys-note">Key types only: dots are keys pressed, arrows are deletions, boxes are pauses. The letters themselves are never recorded.</p>
+<div class="row center"><button id="replay" class="ghost" hidden>Replay</button></div>
+<p id="sample-note" class="small center" hidden>These are sample sessions, so you can see how it works. They are replaced by real marks as people inscribe.</p>
+<ul class="legend" aria-label="How to read a mark">
+<li><svg viewBox="0 0 48 24" aria-hidden="true"><path d="M3 18C11 3 19 21 28 11S41 8 45 5" class="ink"/></svg><span><b>Typing</b> moves the hand forward</span></li>
+<li><svg viewBox="0 0 48 24" aria-hidden="true"><path d="M3 15L31 15C38 15 38 7 31 7L15 7" class="ink"/></svg><span><b>Deleting</b> walks it back over itself</span></li>
+<li><svg viewBox="0 0 48 24" aria-hidden="true"><path d="M3 12L17 12M29 12L45 12" class="ink"/></svg><span><b>A pause</b> lifts the pen</span></li>
+<li><svg viewBox="0 0 48 24" aria-hidden="true"><path d="M3 12L45 12" class="ink dash"/></svg><span><b>Pasted text</b> is a ruled line, no hand</span></li>
+<li><svg viewBox="0 0 48 24" aria-hidden="true"><path d="M3 15C14 3 26 21 45 9" class="ink"/><circle cx="24" cy="12" r="3.2" class="gold-fill"/></svg><span><b>A slip, fixed</b> and moved past: a gold knot</span></li>
+<li><svg viewBox="-14 -14 28 28" aria-hidden="true"><path id="sig-ico" class="gold-line"/></svg><span><b>The signature</b> is their key, stamped at the end</span></li>
+</ul>
 <p id="status" class="mono">reading the book…</p>
-<p class="caption">The Book. Each mark is one certified act of work, drawn from how it was made: rewrites loop back over themselves, pauses lift the pen, pasted text runs straight as a ruler, forgiven slips are tied off in gold, and faint threads show who recognized whom. Marks arrive in order and are never erased, and every new one turns the whole.</p>
+<p class="caption">The Book. Each mark is one certified act of work, signed with its author's own key and fixed in Bitcoin. Nothing in the drawing is the work or its words: it is only the shape of how the work was made.</p>
 
 <main>
 <h1>Merit</h1>
