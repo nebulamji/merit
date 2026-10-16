@@ -25,7 +25,7 @@ Anti-cheating tools ask *"did a human write this?"* about one document. Merit ke
 
 ## Use it
 
-1. Install the app (`pnpm app:build`, or the installers built by CI). On macOS, allow it under *Privacy & Security → Input Monitoring*.
+1. Install the app: download the installer for your computer from the latest GitHub release (macOS `.dmg` for Apple Silicon and Intel, Windows `.msi` or `.exe`, Linux `.AppImage` or `.deb`). First run: on macOS allow it under *Privacy & Security → Input Monitoring* (and right-click → Open, the build is unsigned); on Windows choose *More info → Run anyway* (unsigned). Linux needs an X11 session for the global recorder; on Wayland, or anywhere you cannot install an app, use the terminal recorder (`packages/term`) or the CLI (`dist/merit-cli.cjs`, Node 22). Building from source: `pnpm app:build`.
 2. Menu bar → **Measure integrity**, write in any app on your list (`~/.merit/apps.json`), then **Stop & sign**.
 3. The dashboard signs the session with your key (Keychain / Credential Manager / Secret Service, never shown to the page) and submits it to Bitcoin. A few hours later it confirms on its own.
 4. **Inscribe** it in the Book at merit.artofficial.computer, with a recognition from someone already there, or by time (three anchored certificates over a week).
