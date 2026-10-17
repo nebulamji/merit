@@ -2203,7 +2203,7 @@ dependencies = [
 
 [[package]]
 name = "merit-menubar"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "active-win-pos-rs",
  "base64 0.22.1",
@@ -2217,6 +2217,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
 ]

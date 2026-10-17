@@ -11,7 +11,9 @@ use rdev::{listen, EventType, Key};
 use serde::Serialize;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{
@@ -36,12 +38,33 @@ struct Mods {
     ctrl: bool,
 }
 
+/// Set when the OS refuses the key listener (macOS: Input Monitoring is off for this app).
+static LISTENER_FAILED: AtomicBool = AtomicBool::new(false);
+
 struct Session {
     allow: Vec<String>,
     path: PathBuf,
     started: Instant,
     seq: u64,
     file: std::fs::File,
+    // Honest counts of what was and was not recorded, so an empty session can say why. Counts and app names only; never characters.
+    seen: u64,
+    secure_skipped: u64,
+    app_unknown: u64,
+    apps_skipped: HashMap<String, u64>,
+}
+
+/// Is the app in front on the person's list? (exact name, or the app's name contains a listed name)
+fn app_allowed(app: Option<&str>, allow: &[String]) -> bool {
+    app.map(|a| allow.iter().any(|x| a.eq_ignore_ascii_case(x) || a.to_lowercase().contains(&x.to_lowercase()))).unwrap_or(false)
+}
+
+/// `sessions/20261017T020747Z-desktop`: the only shape the dashboard may ask us to touch.
+fn session_base_ok(base: &str) -> bool {
+    let Some(rest) = base.strip_prefix("sessions/") else { return false };
+    let Some(stamp) = rest.strip_suffix("-desktop") else { return false };
+    let b = stamp.as_bytes();
+    b.len() == 16 && b.iter().enumerate().all(|(i, c)| match i { 8 => *c == b'T', 15 => *c == b'Z', _ => c.is_ascii_digit() })
 }
 
 #[derive(Default)]
@@ -155,16 +178,21 @@ fn start_listener(state: Shared) {
                         Key::ControlLeft | Key::ControlRight => st.mods.ctrl = true,
                         _ => {}
                     }
-                    // Never measure while macOS is in Secure Event Input (password fields).
-                    if secure_input_active() {
-                        return;
-                    }
                     let class = classify(k, &st.mods);
                     if let (Some(class), Some(s)) = (class, st.session.as_mut()) {
+                        s.seen += 1;
+                        // Never measure while macOS is in Secure Event Input (password fields).
+                        if secure_input_active() {
+                            s.secure_skipped += 1;
+                            return;
+                        }
                         // Measure only inside apps the person chose.
                         let app = frontmost_app();
-                        let allowed = app.as_deref().map(|a| s.allow.iter().any(|x| a.eq_ignore_ascii_case(x) || a.to_lowercase().contains(&x.to_lowercase()))).unwrap_or(false);
-                        if !allowed {
+                        if !app_allowed(app.as_deref(), &s.allow) {
+                            match app {
+                                Some(a) => { if s.apps_skipped.len() < 50 || s.apps_skipped.contains_key(&a) { *s.apps_skipped.entry(a).or_insert(0) += 1; } }
+                                None => s.app_unknown += 1,
+                            }
                             return;
                         }
                         // We never read the clipboard: a paste is counted, its contents and length are not read.
@@ -183,6 +211,7 @@ fn start_listener(state: Shared) {
             }
         };
         if let Err(e) = listen(cb) {
+            LISTENER_FAILED.store(true, Ordering::Relaxed);
             eprintln!("merit: key listener failed (grant Input Monitoring in System Settings): {:?}", e);
         }
     });
@@ -193,6 +222,9 @@ fn start_session(state: &Shared) -> String {
     if st.session.is_some() {
         return "Already measuring".into();
     }
+    if LISTENER_FAILED.load(Ordering::Relaxed) {
+        return "Merit cannot see keys: turn on Input Monitoring for Merit (System Settings → Privacy & Security)".into();
+    }
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
     let path = merit_home().join("sessions").join(format!("{stamp}-desktop.jsonl"));
     match OpenOptions::new().create(true).append(true).open(&path) {
@@ -202,10 +234,30 @@ fn start_session(state: &Shared) -> String {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
             }
-            st.session = Some(Session { allow: allowed_apps(), path, started: Instant::now(), seq: 0, file });
+            st.session = Some(Session { allow: allowed_apps(), path, started: Instant::now(), seq: 0, file, seen: 0, secure_skipped: 0, app_unknown: 0, apps_skipped: HashMap::new() });
             "Measuring integrity (key types only, never letters)".into()
         }
         Err(e) => format!("Could not start: {e}"),
+    }
+}
+
+/// What was seen versus recorded, saved next to the session (owner-only). Lets the dashboard explain an empty session.
+fn write_meta(s: &Session) {
+    let mut apps: Vec<(&String, &u64)> = s.apps_skipped.iter().collect();
+    apps.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    apps.truncate(12);
+    let meta = serde_json::json!({
+        "seen": s.seen, "recorded": s.seq, "secure_skipped": s.secure_skipped, "app_unknown": s.app_unknown,
+        "apps_skipped": apps.into_iter().map(|(k, v)| serde_json::json!({ "app": k, "keys": v })).collect::<Vec<_>>(),
+        "listener_failed": LISTENER_FAILED.load(Ordering::Relaxed),
+    });
+    let path = s.path.with_extension("meta.json");
+    if fs::write(&path, serde_json::to_string_pretty(&meta).unwrap_or_default()).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        }
     }
 }
 
@@ -214,6 +266,7 @@ fn start_session(state: &Shared) -> String {
 fn stop_session(state: &Shared) -> Result<(String, u64), String> {
     let session = state.lock().unwrap().session.take();
     let Some(s) = session else { return Err("Not measuring".into()) };
+    write_meta(&s);
     drop(s.file);
     let name = s.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     Ok((name, s.seq))
@@ -254,6 +307,44 @@ fn take_to_sign(state: tauri::State<Shared>) -> Vec<String> {
 #[tauri::command]
 fn log(msg: String) {
     eprintln!("merit dashboard: {msg}");
+}
+
+#[tauri::command]
+fn capture_health() -> serde_json::Value {
+    serde_json::json!({ "listener_failed": LISTENER_FAILED.load(Ordering::Relaxed) })
+}
+
+/// Add an app to the measured list (apps.json). Names only; no paths, no control characters.
+#[tauri::command]
+fn add_app(name: String) -> Result<Vec<String>, String> {
+    let n = name.trim().to_string();
+    if n.is_empty() || n.len() > 64 || n.chars().any(|c| c.is_control()) { return Err("not a valid app name".into()); }
+    let mut list = allowed_apps();
+    if !list.iter().any(|x| x.eq_ignore_ascii_case(&n)) { list.push(n); }
+    fs::write(merit_home().join("apps.json"), serde_json::to_string_pretty(&list).unwrap_or_default()).map_err(|e| e.to_string())?;
+    Ok(list)
+}
+
+/// Open the macOS Input Monitoring pane, where Merit must be switched on to see key presses.
+#[tauri::command]
+fn open_input_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return std::process::Command::new("open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent").spawn().map(|_| ()).map_err(|e| e.to_string());
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err("only needed on macOS".into())
+}
+
+/// Remove a session that recorded nothing (0 bytes) and its notes. Refuses anything else.
+#[tauri::command]
+fn delete_empty_session(base: String) -> Result<(), String> {
+    if !session_base_ok(&base) { return Err("not a session".into()); }
+    let jsonl = merit_home().join(format!("{base}.jsonl"));
+    match fs::metadata(&jsonl) { Ok(m) if m.len() == 0 => {} Ok(_) => return Err("that session has recorded keys; it is not empty".into()), Err(e) => return Err(e.to_string()) }
+    let _ = fs::remove_file(&jsonl);
+    let _ = fs::remove_file(merit_home().join(format!("{base}.meta.json")));
+    Ok(())
 }
 
 #[tauri::command]
@@ -299,7 +390,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(state.clone())
-        .invoke_handler(tauri::generate_handler![list_sessions, recording_status, take_to_sign, log, core::public_key, core::sign, core::read_file, core::write_file, core::list_files, core::http])
+        .invoke_handler(tauri::generate_handler![list_sessions, recording_status, capture_health, add_app, open_input_settings, delete_empty_session, take_to_sign, log, core::public_key, core::sign, core::events_root, core::read_file, core::write_file, core::list_files, core::file_size, core::http])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -333,7 +424,7 @@ fn main() {
                                 st.lock().unwrap().to_sign.push(name);
                                 open_dashboard(app);
                                 let _ = app.emit("sign-queued", ());
-                                format!("Signing ({n} keystrokes)…")
+                                if n == 0 { "Nothing was recorded (see the dashboard)".to_string() } else { format!("Signing ({n} keystrokes)…") }
                             }
                             Err(m) => m,
                         };
@@ -362,4 +453,36 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Merit");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn l(v: &[&str]) -> Vec<String> { v.iter().map(|x| x.to_string()).collect() }
+
+    #[test]
+    fn app_matching_is_exact_or_contains_and_case_insensitive() {
+        let a = l(&["Terminal", "Code", "Notes"]);
+        assert!(app_allowed(Some("Terminal"), &a));
+        assert!(app_allowed(Some("terminal"), &a));
+        assert!(app_allowed(Some("Visual Studio Code"), &a));      // contains "code"
+        assert!(!app_allowed(Some("Messages"), &a));
+        assert!(!app_allowed(Some("Claude"), &a));
+        assert!(!app_allowed(None, &a), "an app we could not identify is never measured");
+        assert!(!app_allowed(Some("Terminal"), &[]), "an empty list measures nothing");
+    }
+
+    #[test]
+    fn only_real_session_names_may_be_touched() {
+        assert!(session_base_ok("sessions/20261017T020747Z-desktop"));
+        for bad in ["", "sessions/", "sessions/../x-desktop", "../sessions/20261017T020747Z-desktop", "sessions/20261017T020747Z-desktop.jsonl", "sessions/20261017T02074Z-desktop", "sessions/2026101xT020747Z-desktop", "sessions/20261017T020747Z-other", "/etc/passwd", "sessions/20261017T020747Z-desktop/../../key"] {
+            assert!(!session_base_ok(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn recorder_lines_have_no_null_fields() {
+        let e = KeyEvent { seq: 1, t: 2, k: "char", n: None };
+        assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"seq":1,"t":2,"k":"char"}"#);
+    }
 }

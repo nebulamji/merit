@@ -946,7 +946,7 @@
       return sqrt9mod16(P);
     return tonelliShanks(P);
   }
-  var isNegativeLE = (num, modulo) => (mod(num, modulo) & _1n2) === _1n2;
+  var isNegativeLE = (num2, modulo) => (mod(num2, modulo) & _1n2) === _1n2;
   var FIELD_FIELDS = [
     "create",
     "isValid",
@@ -980,15 +980,15 @@
     _validateObject(field, opts);
     return field;
   }
-  function FpPow(Fp2, num, power) {
+  function FpPow(Fp2, num2, power) {
     if (power < _0n2)
       throw new Error("invalid exponent, negatives unsupported");
     if (power === _0n2)
       return Fp2.ONE;
     if (power === _1n2)
-      return num;
+      return num2;
     let p = Fp2.ONE;
-    let d = num;
+    let d = num2;
     while (power > _0n2) {
       if (power & _1n2)
         p = Fp2.mul(p, d);
@@ -999,18 +999,18 @@
   }
   function FpInvertBatch(Fp2, nums, passZero = false) {
     const inverted = new Array(nums.length).fill(passZero ? Fp2.ZERO : void 0);
-    const multipliedAcc = nums.reduce((acc, num, i) => {
-      if (Fp2.is0(num))
+    const multipliedAcc = nums.reduce((acc, num2, i) => {
+      if (Fp2.is0(num2))
         return acc;
       inverted[i] = acc;
-      return Fp2.mul(acc, num);
+      return Fp2.mul(acc, num2);
     }, Fp2.ONE);
     const invertedAcc = Fp2.inv(multipliedAcc);
-    nums.reduceRight((acc, num, i) => {
-      if (Fp2.is0(num))
+    nums.reduceRight((acc, num2, i) => {
+      if (Fp2.is0(num2))
         return acc;
       inverted[i] = Fp2.mul(acc, inverted[i]);
-      return Fp2.mul(acc, num);
+      return Fp2.mul(acc, num2);
     }, invertedAcc);
     return inverted;
   }
@@ -1070,36 +1070,36 @@
       ZERO: _0n2,
       ONE: _1n2,
       allowedLengths,
-      create: (num) => mod(num, ORDER),
-      isValid: (num) => {
-        if (typeof num !== "bigint")
-          throw new Error("invalid field element: expected bigint, got " + typeof num);
-        return _0n2 <= num && num < ORDER;
+      create: (num2) => mod(num2, ORDER),
+      isValid: (num2) => {
+        if (typeof num2 !== "bigint")
+          throw new Error("invalid field element: expected bigint, got " + typeof num2);
+        return _0n2 <= num2 && num2 < ORDER;
       },
-      is0: (num) => num === _0n2,
+      is0: (num2) => num2 === _0n2,
       // is valid and invertible
-      isValidNot0: (num) => !f.is0(num) && f.isValid(num),
-      isOdd: (num) => (num & _1n2) === _1n2,
-      neg: (num) => mod(-num, ORDER),
+      isValidNot0: (num2) => !f.is0(num2) && f.isValid(num2),
+      isOdd: (num2) => (num2 & _1n2) === _1n2,
+      neg: (num2) => mod(-num2, ORDER),
       eql: (lhs, rhs) => lhs === rhs,
-      sqr: (num) => mod(num * num, ORDER),
+      sqr: (num2) => mod(num2 * num2, ORDER),
       add: (lhs, rhs) => mod(lhs + rhs, ORDER),
       sub: (lhs, rhs) => mod(lhs - rhs, ORDER),
       mul: (lhs, rhs) => mod(lhs * rhs, ORDER),
-      pow: (num, power) => FpPow(f, num, power),
+      pow: (num2, power) => FpPow(f, num2, power),
       div: (lhs, rhs) => mod(lhs * invert(rhs, ORDER), ORDER),
       // Same as above, but doesn't normalize
-      sqrN: (num) => num * num,
+      sqrN: (num2) => num2 * num2,
       addN: (lhs, rhs) => lhs + rhs,
       subN: (lhs, rhs) => lhs - rhs,
       mulN: (lhs, rhs) => lhs * rhs,
-      inv: (num) => invert(num, ORDER),
+      inv: (num2) => invert(num2, ORDER),
       sqrt: _sqrt || ((n) => {
         if (!sqrtP)
           sqrtP = FpSqrt(ORDER);
         return sqrtP(f, n);
       }),
-      toBytes: (num) => isLE2 ? numberToBytesLE(num, BYTES) : numberToBytesBE(num, BYTES),
+      toBytes: (num2) => isLE2 ? numberToBytesLE(num2, BYTES) : numberToBytesBE(num2, BYTES),
       fromBytes: (bytes, skipValidation = true) => {
         if (allowedLengths) {
           if (!allowedLengths.includes(bytes.length) || bytes.length > BYTES) {
@@ -2198,7 +2198,7 @@
     return {
       schema: SCHEMA,
       doc_sha256: sha256Hex(args.finalText),
-      events_root: merkleRoot(args.events, args.sessionSecret),
+      events_root: args.eventsRoot ?? merkleRoot(args.events, args.sessionSecret),
       event_count: args.events.length,
       metrics: args.metrics,
       author: { alg: "ed25519", public_key: args.publicKey },
@@ -2235,207 +2235,6 @@
     } catch {
       return false;
     }
-  }
-
-  // packages/capture/src/derive.ts
-  var BURST_GAP_MS = 1e3;
-  var ACTIVE_GAP_MS = 5e3;
-  var PAUSE_MS = 2e3;
-  var RECOVER_MS = 5e3;
-  function deriveKeyMetrics(keys) {
-    let chars_typed = 0, chars_pasted = 0, paste_events = 0, max_paste_len = 0;
-    let deletions = 0, typo_fixes = 0, word_changes = 0, restructures = 0, revisions = 0;
-    let bursts = 0, pauses_over_2s = 0, longest_pause_ms = 0, active_ms = 0;
-    let runLen = 0, runs = 0, absorbed = 0, lastDelT = 0, netTyped = 0;
-    let selected = false, inBurst = false;
-    let prevT = null;
-    const closeRun = (nextT, resumed = false) => {
-      if (runLen === 0) return;
-      runs++;
-      if (resumed && nextT !== void 0 && nextT - lastDelT <= RECOVER_MS) absorbed++;
-      if (runLen <= 2) typo_fixes++;
-      else if (runLen < 40) word_changes++;
-      else restructures++;
-      runLen = 0;
-    };
-    for (const e of keys) {
-      if (prevT !== null) {
-        const gap = e.t - prevT;
-        if (gap < ACTIVE_GAP_MS) active_ms += gap;
-        if (gap > PAUSE_MS) pauses_over_2s++;
-        if (gap > longest_pause_ms) longest_pause_ms = gap;
-        if (gap >= BURST_GAP_MS) inBurst = false;
-      }
-      prevT = e.t;
-      const typing = e.k === "char" || e.k === "upper" || e.k === "digit" || e.k === "punct" || e.k === "space" || e.k === "enter";
-      if (e.k === "back" || e.k === "del") {
-        deletions++;
-        if (selected) {
-          revisions++;
-          selected = false;
-        } else {
-          runLen++;
-          netTyped = Math.max(0, netTyped - 1);
-        }
-        lastDelT = e.t;
-        inBurst = false;
-        continue;
-      }
-      closeRun(e.t, typing);
-      if (e.k === "select") {
-        selected = true;
-        continue;
-      }
-      if (typing) {
-        if (selected) {
-          revisions++;
-          selected = false;
-        }
-        chars_typed++;
-        netTyped++;
-        if (!inBurst) {
-          bursts++;
-          inBurst = true;
-        }
-      } else if (e.k === "paste") {
-        paste_events++;
-        const n = e.n ?? 0;
-        chars_pasted += n;
-        if (n > max_paste_len) max_paste_len = n;
-        inBurst = false;
-      } else {
-        selected = false;
-      }
-    }
-    closeRun();
-    const final_est = netTyped + chars_pasted;
-    const style = styleOfKeys(keys);
-    const rhythm = rhythmOfKeys(keys, word_changes + restructures + revisions, deletions, chars_typed);
-    const first = keys[0]?.t ?? 0;
-    const last = keys[keys.length - 1]?.t ?? 0;
-    return {
-      session_ms: Math.max(0, last - first),
-      active_ms,
-      chars_typed,
-      chars_pasted,
-      paste_events,
-      max_paste_len,
-      corrections: { deletions, typo_fixes, word_changes, restructures },
-      revisions,
-      bursts,
-      pauses_over_2s,
-      longest_pause_ms,
-      final_chars: final_est,
-      typed_share: final_est === 0 ? 0 : Math.round(netTyped / final_est * 1e3) / 1e3,
-      forgiveness: runs === 0 ? 1 : Math.round(absorbed / runs * 1e3) / 1e3,
-      source: "keys",
-      style,
-      rhythm
-    };
-  }
-  var median = (xs) => {
-    if (xs.length === 0) return 0;
-    const s = [...xs].sort((a, b) => a - b);
-    const m = Math.floor(s.length / 2);
-    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-  };
-  var round3 = (x) => Math.round(x * 1e3) / 1e3;
-  function rhythmOfKeys(keys, revisionEvents, deletions = 0, charsTyped = 0) {
-    const isLetter = (k) => k === "char" || k === "upper" || k === "digit";
-    const within = [];
-    const preWord = [];
-    let words = 0, longPauses = 0, boundaryLong = 0;
-    for (let i = 1; i < keys.length; i++) {
-      const a = keys[i - 1], b = keys[i];
-      const gap = b.t - a.t;
-      const boundary = a.k === "space" || a.k === "enter" || a.k === "punct";
-      if (isLetter(b.k)) {
-        if (isLetter(a.k)) within.push(gap);
-        else if (a.k === "space" || a.k === "enter") {
-          preWord.push(gap);
-        }
-      }
-      if (isLetter(b.k) && !isLetter(a.k)) words++;
-      if (gap > 2e3) {
-        longPauses++;
-        if (boundary) boundaryLong++;
-      }
-    }
-    if (keys.length && isLetter(keys[0].k)) words++;
-    const mw = median(within);
-    const mean = within.length ? within.reduce((s, x) => s + x, 0) / within.length : 0;
-    const sd = within.length ? Math.sqrt(within.reduce((s, x) => s + (x - mean) ** 2, 0) / within.length) : 0;
-    const mp = median(preWord);
-    return {
-      within_word_median_ms: Math.round(mw),
-      pre_word_median_ms: Math.round(mp),
-      planning_ratio: mw > 0 ? round3(mp / mw) : 0,
-      iki_cv: mean > 0 ? round3(sd / mean) : 0,
-      boundary_pause_share: longPauses ? round3(boundaryLong / longPauses) : 0,
-      revisions_per_100_words: words ? round3(revisionEvents / words * 100) : 0,
-      words,
-      deletions_per_100_chars: charsTyped ? round3(deletions / charsTyped * 100) : 0,
-      long_pauses_per_100_words: words ? round3(longPauses / words * 100) : 0
-    };
-  }
-  function styleOfKeys(keys) {
-    const s = { space_before_punct: 0, multi_spaces: 0, punct_runs: 0, longest_punct_run: 0, capitals: 0, caps_runs: 0, punctuation: 0 };
-    let prev = null;
-    let spaceRun = 0, punctRun = 0, capsRun = 0;
-    const endPunct = () => {
-      if (punctRun >= 2) s.punct_runs++;
-      if (punctRun > s.longest_punct_run) s.longest_punct_run = punctRun;
-      punctRun = 0;
-    };
-    const endCaps = () => {
-      if (capsRun >= 3) s.caps_runs++;
-      capsRun = 0;
-    };
-    for (const e of keys) {
-      const k = e.k;
-      if (k === "punct") {
-        s.punctuation++;
-        if (prev === "space") s.space_before_punct++;
-        punctRun++;
-      } else endPunct();
-      if (k === "space") {
-        spaceRun++;
-        if (spaceRun === 2) s.multi_spaces++;
-      } else spaceRun = 0;
-      if (k === "upper") {
-        s.capitals++;
-        capsRun++;
-      } else if (k !== "punct") endCaps();
-      prev = k === "char" || k === "upper" || k === "digit" || k === "punct" || k === "space" || k === "enter" ? k : null;
-    }
-    endPunct();
-    endCaps();
-    return s;
-  }
-
-  // packages/capture/src/lint.ts
-  var KEY_CLASSES = /* @__PURE__ */ new Set(["char", "upper", "digit", "punct", "space", "enter", "back", "del", "paste", "nav", "select", "undo", "cmd", "review"]);
-  var KEY_FIELDS = /* @__PURE__ */ new Set(["seq", "t", "k", "n", "app", "decision", "kind"]);
-  var REVIEW_DECISIONS = /* @__PURE__ */ new Set(["accept", "keep"]);
-  var REVIEW_KINDS = /* @__PURE__ */ new Set(["space_before_punct", "repeated_punct", "multi_space", "unbalanced_quote", "doubled_quote"]);
-  function privacyLint(keys) {
-    const out = [];
-    keys.forEach((e, i) => {
-      if (!e || typeof e !== "object") {
-        out.push(`event ${i}: not an object`);
-        return;
-      }
-      for (const f of Object.keys(e)) if (!KEY_FIELDS.has(f)) out.push(`event ${i}: unexpected field "${f}"`);
-      const ev = e;
-      if (!KEY_CLASSES.has(String(ev.k))) out.push(`event ${i}: unknown key type "${String(ev.k).slice(0, 12)}"`);
-      if (ev.n !== void 0 && typeof ev.n !== "number") out.push(`event ${i}: paste length must be a number`);
-      if (ev.app !== void 0 && (typeof ev.app !== "string" || ev.app.length > 64)) out.push(`event ${i}: bad app label`);
-      if (ev.k === "review") {
-        if (!REVIEW_DECISIONS.has(String(ev.decision))) out.push(`event ${i}: review decision must be accept|keep`);
-        if (!REVIEW_KINDS.has(String(ev.kind))) out.push(`event ${i}: unknown correction kind`);
-      } else if (ev.decision !== void 0 || ev.kind !== void 0) out.push(`event ${i}: decision/kind only allowed on review events`);
-    });
-    return out;
   }
 
   // node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/legacy.js
@@ -3116,6 +2915,274 @@
     return null;
   }
 
+  // packages/capture/src/derive.ts
+  var BURST_GAP_MS = 1e3;
+  var ACTIVE_GAP_MS = 5e3;
+  var PAUSE_MS = 2e3;
+  var RECOVER_MS = 5e3;
+  function deriveKeyMetrics(keys) {
+    let chars_typed = 0, chars_pasted = 0, paste_events = 0, max_paste_len = 0;
+    let deletions = 0, typo_fixes = 0, word_changes = 0, restructures = 0, revisions = 0;
+    let bursts = 0, pauses_over_2s = 0, longest_pause_ms = 0, active_ms = 0;
+    let runLen = 0, runs = 0, absorbed = 0, lastDelT = 0, netTyped = 0;
+    let selected = false, inBurst = false;
+    let prevT = null;
+    const closeRun = (nextT, resumed = false) => {
+      if (runLen === 0) return;
+      runs++;
+      if (resumed && nextT !== void 0 && nextT - lastDelT <= RECOVER_MS) absorbed++;
+      if (runLen <= 2) typo_fixes++;
+      else if (runLen < 40) word_changes++;
+      else restructures++;
+      runLen = 0;
+    };
+    for (const e of keys) {
+      if (prevT !== null) {
+        const gap = e.t - prevT;
+        if (gap < ACTIVE_GAP_MS) active_ms += gap;
+        if (gap > PAUSE_MS) pauses_over_2s++;
+        if (gap > longest_pause_ms) longest_pause_ms = gap;
+        if (gap >= BURST_GAP_MS) inBurst = false;
+      }
+      prevT = e.t;
+      const typing = e.k === "char" || e.k === "upper" || e.k === "digit" || e.k === "punct" || e.k === "space" || e.k === "enter";
+      if (e.k === "back" || e.k === "del") {
+        deletions++;
+        if (selected) {
+          revisions++;
+          selected = false;
+        } else {
+          runLen++;
+          netTyped = Math.max(0, netTyped - 1);
+        }
+        lastDelT = e.t;
+        inBurst = false;
+        continue;
+      }
+      closeRun(e.t, typing);
+      if (e.k === "select") {
+        selected = true;
+        continue;
+      }
+      if (typing) {
+        if (selected) {
+          revisions++;
+          selected = false;
+        }
+        chars_typed++;
+        netTyped++;
+        if (!inBurst) {
+          bursts++;
+          inBurst = true;
+        }
+      } else if (e.k === "paste") {
+        paste_events++;
+        const n = e.n ?? 0;
+        chars_pasted += n;
+        if (n > max_paste_len) max_paste_len = n;
+        inBurst = false;
+      } else {
+        selected = false;
+      }
+    }
+    closeRun();
+    const final_est = netTyped + chars_pasted;
+    const style = styleOfKeys(keys);
+    const rhythm = rhythmOfKeys(keys, word_changes + restructures + revisions, deletions, chars_typed);
+    const first = keys[0]?.t ?? 0;
+    const last = keys[keys.length - 1]?.t ?? 0;
+    return {
+      session_ms: Math.max(0, last - first),
+      active_ms,
+      chars_typed,
+      chars_pasted,
+      paste_events,
+      max_paste_len,
+      corrections: { deletions, typo_fixes, word_changes, restructures },
+      revisions,
+      bursts,
+      pauses_over_2s,
+      longest_pause_ms,
+      final_chars: final_est,
+      typed_share: final_est === 0 ? 0 : Math.round(netTyped / final_est * 1e3) / 1e3,
+      forgiveness: runs === 0 ? 1 : Math.round(absorbed / runs * 1e3) / 1e3,
+      source: "keys",
+      style,
+      rhythm
+    };
+  }
+  var median = (xs) => {
+    if (xs.length === 0) return 0;
+    const s = [...xs].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  var round3 = (x) => Math.round(x * 1e3) / 1e3;
+  function rhythmOfKeys(keys, revisionEvents, deletions = 0, charsTyped = 0) {
+    const isLetter = (k) => k === "char" || k === "upper" || k === "digit";
+    const within = [];
+    const preWord = [];
+    let words = 0, longPauses = 0, boundaryLong = 0;
+    for (let i = 1; i < keys.length; i++) {
+      const a = keys[i - 1], b = keys[i];
+      const gap = b.t - a.t;
+      const boundary = a.k === "space" || a.k === "enter" || a.k === "punct";
+      if (isLetter(b.k)) {
+        if (isLetter(a.k)) within.push(gap);
+        else if (a.k === "space" || a.k === "enter") {
+          preWord.push(gap);
+        }
+      }
+      if (isLetter(b.k) && !isLetter(a.k)) words++;
+      if (gap > 2e3) {
+        longPauses++;
+        if (boundary) boundaryLong++;
+      }
+    }
+    if (keys.length && isLetter(keys[0].k)) words++;
+    const mw = median(within);
+    const mean = within.length ? within.reduce((s, x) => s + x, 0) / within.length : 0;
+    const sd = within.length ? Math.sqrt(within.reduce((s, x) => s + (x - mean) ** 2, 0) / within.length) : 0;
+    const mp = median(preWord);
+    return {
+      within_word_median_ms: Math.round(mw),
+      pre_word_median_ms: Math.round(mp),
+      planning_ratio: mw > 0 ? round3(mp / mw) : 0,
+      iki_cv: mean > 0 ? round3(sd / mean) : 0,
+      boundary_pause_share: longPauses ? round3(boundaryLong / longPauses) : 0,
+      revisions_per_100_words: words ? round3(revisionEvents / words * 100) : 0,
+      words,
+      deletions_per_100_chars: charsTyped ? round3(deletions / charsTyped * 100) : 0,
+      long_pauses_per_100_words: words ? round3(longPauses / words * 100) : 0
+    };
+  }
+  function styleOfKeys(keys) {
+    const s = { space_before_punct: 0, multi_spaces: 0, punct_runs: 0, longest_punct_run: 0, capitals: 0, caps_runs: 0, punctuation: 0 };
+    let prev = null;
+    let spaceRun = 0, punctRun = 0, capsRun = 0;
+    const endPunct = () => {
+      if (punctRun >= 2) s.punct_runs++;
+      if (punctRun > s.longest_punct_run) s.longest_punct_run = punctRun;
+      punctRun = 0;
+    };
+    const endCaps = () => {
+      if (capsRun >= 3) s.caps_runs++;
+      capsRun = 0;
+    };
+    for (const e of keys) {
+      const k = e.k;
+      if (k === "punct") {
+        s.punctuation++;
+        if (prev === "space") s.space_before_punct++;
+        punctRun++;
+      } else endPunct();
+      if (k === "space") {
+        spaceRun++;
+        if (spaceRun === 2) s.multi_spaces++;
+      } else spaceRun = 0;
+      if (k === "upper") {
+        s.capitals++;
+        capsRun++;
+      } else if (k !== "punct") endCaps();
+      prev = k === "char" || k === "upper" || k === "digit" || k === "punct" || k === "space" || k === "enter" ? k : null;
+    }
+    endPunct();
+    endCaps();
+    return s;
+  }
+
+  // packages/capture/src/lint.ts
+  var KEY_CLASSES = /* @__PURE__ */ new Set(["char", "upper", "digit", "punct", "space", "enter", "back", "del", "paste", "nav", "select", "undo", "cmd", "review"]);
+  var KEY_FIELDS = /* @__PURE__ */ new Set(["seq", "t", "k", "n", "app", "decision", "kind"]);
+  var REVIEW_DECISIONS = /* @__PURE__ */ new Set(["accept", "keep"]);
+  var REVIEW_KINDS = /* @__PURE__ */ new Set(["space_before_punct", "repeated_punct", "multi_space", "unbalanced_quote", "doubled_quote"]);
+  function privacyLint(keys) {
+    const out = [];
+    keys.forEach((e, i) => {
+      if (!e || typeof e !== "object") {
+        out.push(`event ${i}: not an object`);
+        return;
+      }
+      for (const f of Object.keys(e)) if (!KEY_FIELDS.has(f)) out.push(`event ${i}: unexpected field "${f}"`);
+      const ev = e;
+      if (!KEY_CLASSES.has(String(ev.k))) out.push(`event ${i}: unknown key type "${String(ev.k).slice(0, 12)}"`);
+      if (ev.n !== void 0 && typeof ev.n !== "number") out.push(`event ${i}: paste length must be a number`);
+      if (ev.app !== void 0 && (typeof ev.app !== "string" || ev.app.length > 64)) out.push(`event ${i}: bad app label`);
+      if (ev.k === "review") {
+        if (!REVIEW_DECISIONS.has(String(ev.decision))) out.push(`event ${i}: review decision must be accept|keep`);
+        if (!REVIEW_KINDS.has(String(ev.kind))) out.push(`event ${i}: unknown correction kind`);
+      } else if (ev.decision !== void 0 || ev.kind !== void 0) out.push(`event ${i}: decision/kind only allowed on review events`);
+    });
+    return out;
+  }
+
+  // apps/menubar/src/signing.ts
+  var num = (x) => typeof x === "number" && Number.isFinite(x) && x >= 0;
+  function parseSession(raw) {
+    const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return { status: "empty" };
+    const keys = [];
+    let ignoredTail = false;
+    for (let i = 0; i < lines.length; i++) {
+      let e;
+      try {
+        e = JSON.parse(lines[i]);
+      } catch {
+        if (i === lines.length - 1 && i > 0) {
+          ignoredTail = true;
+          break;
+        }
+        return { status: "corrupt", reason: `line ${i + 1} is not readable` };
+      }
+      if (e && typeof e === "object") {
+        for (const f of Object.keys(e)) if (e[f] === null) delete e[f];
+      }
+      keys.push(e);
+    }
+    const problems = privacyLint(keys);
+    if (problems.length) return { status: "refused", reason: `the session contains more than key types (${problems[0]})` };
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (!num(k.seq) || !num(k.t)) return { status: "corrupt", reason: `event ${i + 1} has no valid sequence or time` };
+      if (i > 0 && k.t < keys[i - 1].t) return { status: "corrupt", reason: `event ${i + 1} goes back in time` };
+    }
+    if (!keys.length) return { status: "empty" };
+    return { status: "ready", keys, ignoredTail };
+  }
+  async function signKeys(keys, publicKey, sign, opts = {}) {
+    try {
+      const secret = opts.secret ?? newSessionSecret();
+      const body = attestationBody({ events: keys, finalText: "", metrics: deriveKeyMetrics(keys), sessionSecret: secret, publicKey, surface: opts.surface ?? "merit-desktop/0.1", createdUtc: opts.createdUtc, eventsRoot: opts.eventsRoot });
+      const signature = await sign(signingPayload(body));
+      const cert = { ...body, id: attestationId(body), signature };
+      if (!verifySignature(cert)) return { ok: false, error: "the signature did not check out, so nothing was written" };
+      return { ok: true, cert, secret };
+    } catch (e) {
+      return { ok: false, error: e.message ?? String(e) };
+    }
+  }
+
+  // apps/menubar/src/diagnose.ts
+  function explainEmpty(meta, health = {}) {
+    if (health.listener_failed || meta?.listener_failed)
+      return { title: "Merit cannot see your keys", lines: ["macOS has not allowed Merit to watch the keyboard. Turn Merit on under Privacy & Security \u2192 Input Monitoring, then quit and reopen Merit."], fixes: [{ kind: "input-settings" }] };
+    if (!meta)
+      return { title: "Nothing was recorded", lines: ["This session has no notes, so I cannot tell why. Start a new one, type something, and stop it: the notes will show what Merit saw.", "If a new session also records nothing, Input Monitoring is probably off for Merit."], fixes: [{ kind: "input-settings" }] };
+    const apps = (meta.apps_skipped ?? []).filter((a) => a.keys > 0);
+    const lines = [];
+    const fixes = [];
+    if (!(meta.seen ?? 0))
+      return { title: "Merit saw no key presses at all", lines: ["That almost always means macOS Input Monitoring is off for Merit. Turn it on, then quit and reopen Merit and try again."], fixes: [{ kind: "input-settings" }] };
+    lines.push(`Merit saw ${meta.seen} key presses and recorded none.`);
+    if (apps.length) {
+      lines.push(`They were typed in apps that are not on your list: ${apps.slice(0, 4).map((a) => `${a.app} (${a.keys})`).join(", ")}.`);
+      for (const a of apps.slice(0, 4)) fixes.push({ kind: "add-app", app: a.app });
+    }
+    if (meta.app_unknown) lines.push(`${meta.app_unknown} were typed while Merit could not tell which app was in front.`);
+    if (meta.secure_skipped) lines.push(`${meta.secure_skipped} were in a password field, which Merit never measures.`);
+    return { title: "Nothing was recorded", lines, fixes };
+  }
+
   // apps/menubar/src/dashboard.ts
   var { invoke } = window.__TAURI__.core;
   var { listen } = window.__TAURI__.event;
@@ -3168,18 +3235,28 @@
   }
   async function signSession(jsonl) {
     const base = jsonl.replace(/\.jsonl$/, "");
-    if (await read(`${base}.cert.json`)) return;
+    if (await read(`${base}.cert.json`)) return note("That session is already signed.");
     const raw = await read(jsonl);
     if (!raw) return note(`Could not read ${jsonl}`, true);
-    const keys = text(raw).split("\n").filter(Boolean).map((l) => JSON.parse(l));
-    const problems = privacyLint(keys);
-    if (problems.length) return note(`Refused to sign: the session contains more than key types (${problems[0]}).`, true);
-    if (!keys.length) return note("Nothing was typed in that session.");
+    const p = parseSession(text(raw));
+    if (p.status === "empty") {
+      await showWhyEmpty(base);
+      return;
+    }
+    if (p.status === "corrupt") return note(`This session file is damaged (${p.reason}), so it was not signed.`, true);
+    if (p.status === "refused") return note(`Refused to sign: ${p.reason}.`, true);
+    note(`Signing ${p.keys.length.toLocaleString("en-US")} key presses\u2026`);
+    await new Promise((res) => setTimeout(res, 30));
     const secret = newSessionSecret();
-    const body = attestationBody({ events: keys, finalText: "", metrics: deriveKeyMetrics(keys), sessionSecret: secret, publicKey: await invoke("public_key"), surface: "merit-desktop/0.1" });
-    const signature = await invoke("sign", { payloadB64: b64(signingPayload(body)) });
-    const cert = { ...body, id: attestationId(body), signature };
-    if (!verifySignature(cert)) return note("Signature check failed; nothing was written.", true);
+    let eventsRoot;
+    try {
+      eventsRoot = await invoke("events_root", { keys: p.keys.map((k) => ({ seq: k.seq, t: k.t, k: k.k, ...k.n !== void 0 ? { n: k.n } : {} })), secretHex: secret });
+    } catch {
+      eventsRoot = void 0;
+    }
+    const r = await signKeys(p.keys, await invoke("public_key"), async (payload) => invoke("sign", { payloadB64: b64(payload) }), { secret, eventsRoot });
+    if (!r.ok) return note(`Not signed: ${r.error}.`, true);
+    const { cert } = r;
     await write(`${base}.cert.json`, utf8ToBytes(JSON.stringify(cert, null, 2)));
     await write(`${base}.secret`, utf8ToBytes(secret), true);
     note(`Signed ${cert.id}. Anchoring to Bitcoin\u2026`);
@@ -3210,7 +3287,15 @@
         } catch {
         }
       }
-      out.push({ base, cert, ots: o, height, pending });
+      let empty = false;
+      if (!cert) {
+        try {
+          empty = await invoke("file_size", { name: `${base}.jsonl` }) === 0;
+        } catch {
+          empty = false;
+        }
+      }
+      out.push({ base, cert, ots: o, height, pending, empty });
     }
     return out;
   }
@@ -3256,6 +3341,62 @@
     } catch {
     }
     note(j.ok ? j.already ? `Already in the Book as No. ${j.seq}.` : `Inscribed as No. ${j.seq}.` : `Not inscribed: ${j.reason ?? res.status}.`, !j.ok);
+  }
+  async function showWhyEmpty(base) {
+    let meta = null;
+    const m = await read(`${base}.meta.json`);
+    if (m) {
+      try {
+        meta = JSON.parse(text(m));
+      } catch {
+      }
+    }
+    let health = {};
+    try {
+      health = await invoke("capture_health");
+    } catch {
+    }
+    const ex = explainEmpty(meta, health), box = $("#why");
+    box.hidden = false;
+    box.innerHTML = "";
+    const h = document.createElement("b");
+    h.textContent = ex.title;
+    box.append(h);
+    for (const line of ex.lines) {
+      const p = document.createElement("p");
+      p.className = "sub";
+      p.textContent = line;
+      box.append(p);
+    }
+    const row = document.createElement("div");
+    row.className = "row";
+    for (const f of ex.fixes) {
+      const b = document.createElement("button");
+      if (f.kind === "input-settings") {
+        b.textContent = "Open Input Monitoring settings";
+        b.onclick = async () => {
+          try {
+            await invoke("open_input_settings");
+          } catch (e) {
+            note(String(e.message ?? e), true);
+          }
+        };
+      } else {
+        b.textContent = `Measure ${f.app}`;
+        b.onclick = async () => {
+          b.disabled = true;
+          try {
+            await invoke("add_app", { name: f.app });
+            note(`${f.app} is on your list. It applies to the next session you start.`);
+          } catch (e) {
+            note(String(e.message ?? e), true);
+          }
+        };
+      }
+      row.append(b);
+    }
+    box.append(row);
+    note(ex.title, true);
   }
   var mins = (ms) => Math.max(1, Math.round(ms / 6e4));
   async function renderWaiting() {
@@ -3304,7 +3445,18 @@
     for (const r of list) {
       const card = document.createElement("div");
       card.className = "card";
-      if (!r.cert) {
+      if (!r.cert && r.empty) {
+        card.innerHTML = `<div class="row"><b>${esc(r.base.split("/")[1])}</b><span class="pend">recorded nothing</span></div><div class="row"><span class="k">There is nothing to sign here.</span><span><button class="why">Why?</button> <button class="rm">Remove</button></span></div>`;
+        card.querySelector(".why").onclick = () => showWhyEmpty(r.base);
+        card.querySelector(".rm").onclick = async () => {
+          try {
+            await invoke("delete_empty_session", { base: r.base });
+            await render();
+          } catch (e) {
+            note(String(e.message ?? e), true);
+          }
+        };
+      } else if (!r.cert) {
         card.innerHTML = `<div class="row"><b>${esc(r.base.split("/")[1])}</b><span class="pend">not signed</span></div><div class="row"><button>Sign</button></div>`;
         card.querySelector("button").onclick = () => signSession(`${r.base}.jsonl`);
       } else {

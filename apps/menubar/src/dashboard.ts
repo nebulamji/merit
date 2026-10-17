@@ -7,6 +7,8 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 import { stampDigest, upgradeOts, confirmBitcoin, readOts } from '../../../packages/verify/src/ots';
 import { workFloor, FOUNDER } from '../../site/src/qualify';
+import { parseSession, signKeys } from './signing';
+import { explainEmpty, type Meta } from './diagnose';
 
 const { invoke } = (window as any).__TAURI__.core;
 const { listen } = (window as any).__TAURI__.event;
@@ -43,18 +45,21 @@ function note(msg: string, bad = false) { const n = $('#note'); n.textContent = 
 /** Sign a recorded session: lint, derive, build, sign natively, write, then anchor. */
 async function signSession(jsonl: string) {
   const base = jsonl.replace(/\.jsonl$/, '');
-  if (await read(`${base}.cert.json`)) return;
+  if (await read(`${base}.cert.json`)) return note('That session is already signed.');
   const raw = await read(jsonl);
   if (!raw) return note(`Could not read ${jsonl}`, true);
-  const keys: KeyEvent[] = text(raw).split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  const problems = privacyLint(keys);
-  if (problems.length) return note(`Refused to sign: the session contains more than key types (${problems[0]}).`, true);
-  if (!keys.length) return note('Nothing was typed in that session.');
+  const p = parseSession(text(raw));
+  if (p.status === 'empty') { await showWhyEmpty(base); return; }
+  if (p.status === 'corrupt') return note(`This session file is damaged (${p.reason}), so it was not signed.`, true);
+  if (p.status === 'refused') return note(`Refused to sign: ${p.reason}.`, true);
+  // Long sessions: say what is happening, let the window paint, and do the heavy commitment natively (the browser path is the fallback).
+  note(`Signing ${p.keys.length.toLocaleString('en-US')} key presses…`); await new Promise((res) => setTimeout(res, 30));
   const secret = newSessionSecret();
-  const body = attestationBody({ events: keys, finalText: '', metrics: deriveKeyMetrics(keys), sessionSecret: secret, publicKey: await invoke('public_key'), surface: 'merit-desktop/0.1' });
-  const signature: string = await invoke('sign', { payloadB64: b64(signingPayload(body)) });
-  const cert: MeritAttestation = { ...body, id: attestationId(body), signature };
-  if (!verifySignature(cert)) return note('Signature check failed; nothing was written.', true);
+  let eventsRoot: string | undefined;
+  try { eventsRoot = await invoke('events_root', { keys: p.keys.map((k: any) => ({ seq: k.seq, t: k.t, k: k.k, ...(k.n !== undefined ? { n: k.n } : {}) })), secretHex: secret }) as string; } catch { eventsRoot = undefined; }
+  const r = await signKeys(p.keys, await invoke('public_key'), async (payload) => invoke('sign', { payloadB64: b64(payload) }), { secret, eventsRoot });
+  if (!r.ok) return note(`Not signed: ${r.error}.`, true);
+  const { cert } = r;
   await write(`${base}.cert.json`, utf8ToBytes(JSON.stringify(cert, null, 2)));
   await write(`${base}.secret`, utf8ToBytes(secret), true);
   note(`Signed ${cert.id}. Anchoring to Bitcoin…`);
@@ -66,7 +71,7 @@ async function signSession(jsonl: string) {
   await render();
 }
 
-type Row = { base: string; cert: MeritAttestation | null; ots: Uint8Array | null; height: number | null; pending: boolean };
+type Row = { base: string; cert: MeritAttestation | null; ots: Uint8Array | null; height: number | null; pending: boolean; empty?: boolean };
 
 async function rows(): Promise<Row[]> {
   const files: string[] = await invoke('list_files', { dir: 'sessions' });
@@ -77,7 +82,8 @@ async function rows(): Promise<Row[]> {
     const cert = c ? JSON.parse(text(c)) as MeritAttestation : null;
     let height: number | null = null, pending = false;
     if (o) { try { const p = readOts(o); const b = p.attestations.find((a) => a.kind === 'bitcoin') as any; height = b?.height ?? null; pending = !b && p.attestations.some((a) => a.kind === 'pending'); } catch { /* unreadable */ } }
-    out.push({ base, cert, ots: o, height, pending });
+    let empty = false; if (!cert) { try { empty = (await invoke('file_size', { name: `${base}.jsonl` })) === 0; } catch { empty = false; } }
+    out.push({ base, cert, ots: o, height, pending, empty });
   }
   return out;
 }
@@ -109,6 +115,23 @@ async function inscribe(r: Row, list: Row[]) {
   const res = await http('POST', `${BOOK}/api/inscribe`, utf8ToBytes(JSON.stringify({ certificate: r.cert, ots: b64(r.ots), recognition, history, consent: true })), 'application/json');
   let j: any = {}; try { j = JSON.parse(text(res.body)); } catch { /* */ }
   note(j.ok ? (j.already ? `Already in the Book as No. ${j.seq}.` : `Inscribed as No. ${j.seq}.`) : `Not inscribed: ${j.reason ?? res.status}.`, !j.ok);
+}
+
+/** An empty session explains itself: what Merit saw, why none of it was kept, and a button for the fix. */
+async function showWhyEmpty(base: string) {
+  let meta: Meta | null = null; const m = await read(`${base}.meta.json`); if (m) { try { meta = JSON.parse(text(m)); } catch { /* */ } }
+  let health: any = {}; try { health = await invoke('capture_health'); } catch { /* */ }
+  const ex = explainEmpty(meta, health), box = $('#why'); box.hidden = false; box.innerHTML = '';
+  const h = document.createElement('b'); h.textContent = ex.title; box.append(h);
+  for (const line of ex.lines) { const p = document.createElement('p'); p.className = 'sub'; p.textContent = line; box.append(p); }
+  const row = document.createElement('div'); row.className = 'row';
+  for (const f of ex.fixes) {
+    const b = document.createElement('button');
+    if (f.kind === 'input-settings') { b.textContent = 'Open Input Monitoring settings'; b.onclick = async () => { try { await invoke('open_input_settings'); } catch (e) { note(String((e as Error).message ?? e), true); } }; }
+    else { b.textContent = `Measure ${f.app}`; b.onclick = async () => { b.disabled = true; try { await invoke('add_app', { name: f.app }); note(`${f.app} is on your list. It applies to the next session you start.`); } catch (e) { note(String((e as Error).message ?? e), true); } }; }
+    row.append(b);
+  }
+  box.append(row); note(ex.title, true);
 }
 
 const mins = (ms: number) => Math.max(1, Math.round(ms / 60000));
@@ -147,7 +170,11 @@ async function render() {
   el.innerHTML = '';
   for (const r of list) {
     const card = document.createElement('div'); card.className = 'card';
-    if (!r.cert) {
+    if (!r.cert && r.empty) {
+      card.innerHTML = `<div class="row"><b>${esc(r.base.split('/')[1])}</b><span class="pend">recorded nothing</span></div><div class="row"><span class="k">There is nothing to sign here.</span><span><button class="why">Why?</button> <button class="rm">Remove</button></span></div>`;
+      (card.querySelector('.why') as HTMLButtonElement).onclick = () => showWhyEmpty(r.base);
+      (card.querySelector('.rm') as HTMLButtonElement).onclick = async () => { try { await invoke('delete_empty_session', { base: r.base }); await render(); } catch (e) { note(String((e as Error).message ?? e), true); } };
+    } else if (!r.cert) {
       card.innerHTML = `<div class="row"><b>${esc(r.base.split('/')[1])}</b><span class="pend">not signed</span></div><div class="row"><button>Sign</button></div>`;
       card.querySelector('button')!.onclick = () => signSession(`${r.base}.jsonl`);
     } else {

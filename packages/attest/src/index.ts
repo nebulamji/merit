@@ -114,11 +114,11 @@ export function buildAttestation(args: {
 }
 
 /** The unsigned body of a certificate. Signers that hold the key elsewhere (a keychain, a native side) sign signingPayload(body). */
-export function attestationBody(args: { events: SeqEvent[]; finalText: string; metrics: Metrics; sessionSecret: string; publicKey: string; surface: string; createdUtc?: string }): AttestationBody {
+export function attestationBody(args: { events: SeqEvent[]; finalText: string; metrics: Metrics; sessionSecret: string; publicKey: string; surface: string; createdUtc?: string; eventsRoot?: string }): AttestationBody {
   return {
     schema: SCHEMA,
     doc_sha256: sha256Hex(args.finalText),
-    events_root: merkleRoot(args.events, args.sessionSecret),
+    events_root: args.eventsRoot ?? merkleRoot(args.events, args.sessionSecret),
     event_count: args.events.length,
     metrics: args.metrics,
     author: { alg: 'ed25519', public_key: args.publicKey },

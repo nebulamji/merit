@@ -98,6 +98,12 @@ pub fn write_file(name: String, data_b64: String, private: bool) -> Result<(), S
     Ok(())
 }
 
+/// Size in bytes of a file inside Merit's home (so the dashboard can tell an empty session without reading it).
+#[tauri::command]
+pub fn file_size(name: String) -> Result<u64, String> {
+    fs::metadata(inside(&name)?).map(|m| m.len()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn list_files(dir: String) -> Result<Vec<String>, String> {
     if dir != "sessions" && dir != "recognitions" { return Err("refused".into()); }
@@ -151,5 +157,86 @@ mod tests {
         assert!(inside("sessions/../../x").is_err());
         assert!(inside("key.json").is_err());
         assert!(inside("/etc/passwd").is_err());
+    }
+}
+
+// ---- native Merkle commitment over a session's key events (the same bytes the TypeScript produces; held to shared vectors)
+use sha2::{Digest, Sha256};
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyIn { seq: u64, t: u64, k: String, n: Option<u64> }
+
+/// Canonical JSON for an event: keys sorted, no spaces, exactly as the TypeScript canonicalJSON writes it. Anything unusual is refused
+/// (the caller then falls back to the TypeScript path), so this can never silently disagree.
+fn canon_event(e: &KeyIn) -> Result<String, String> {
+    if e.k.is_empty() || !e.k.bytes().all(|c| c.is_ascii_lowercase() || c == b'_') { return Err("unsupported event".into()); }
+    Ok(match e.n {
+        Some(n) => format!("{{\"k\":\"{}\",\"n\":{},\"seq\":{},\"t\":{}}}", e.k, n, e.seq, e.t),
+        None => format!("{{\"k\":\"{}\",\"seq\":{},\"t\":{}}}", e.k, e.seq, e.t),
+    })
+}
+
+pub fn merkle_root(keys: &[KeyIn], secret: &[u8]) -> Result<[u8; 32], String> {
+    let mut level: Vec<[u8; 32]> = Vec::with_capacity(keys.len());
+    for e in keys {
+        let mut h = Sha256::new(); h.update(secret); h.update(b":"); h.update(e.seq.to_string().as_bytes());
+        let salt = h.finalize();
+        let mut l = Sha256::new(); l.update([0u8]); l.update(salt); l.update(canon_event(e)?.as_bytes());
+        level.push(l.finalize().into());
+    }
+    if level.is_empty() { return Ok(Sha256::digest([]).into()); }
+    while level.len() > 1 {
+        let mut next = Vec::with_capacity(level.len() / 2 + 1);
+        for pair in level.chunks(2) {
+            if pair.len() == 2 { let mut h = Sha256::new(); h.update([1u8]); h.update(pair[0]); h.update(pair[1]); next.push(h.finalize().into()); } else { next.push(pair[0]); }
+        }
+        level = next;
+    }
+    Ok(level[0])
+}
+
+/// The commitment root for a session's events, computed natively: a long session signs in a fraction of a second instead of freezing the window.
+#[tauri::command]
+pub async fn events_root(keys: Vec<KeyIn>, secret_hex: String) -> Result<String, String> {
+    let secret = hex::decode(&secret_hex).map_err(|_| "bad secret".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || merkle_root(&keys, &secret).map(hex::encode)).await.map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod root_tests {
+    use super::*;
+    #[derive(serde::Deserialize)]
+    struct V { secret: String, keys: Vec<KeyIn>, root: String }
+
+    #[test]
+    fn matches_every_typescript_vector_byte_for_byte() {
+        let v: Vec<V> = serde_json::from_str(include_str!("../../test/vectors/events-root.json")).unwrap();
+        assert!(v.len() >= 15);
+        for (i, x) in v.iter().enumerate() {
+            let got = hex::encode(merkle_root(&x.keys, &hex::decode(&x.secret).unwrap()).unwrap());
+            assert_eq!(got, x.root, "vector {i} ({} events)", x.keys.len());
+        }
+    }
+
+    #[test]
+    fn refuses_anything_unusual_instead_of_guessing() {
+        for k in ["", "Char", "ch ar", "char\"", "ch\\ar", "ünï"] {
+            let e = KeyIn { seq: 0, t: 0, k: k.to_string(), n: None };
+            assert!(merkle_root(&[e], b"s").is_err(), "{k:?}");
+        }
+        assert!(serde_json::from_str::<KeyIn>(r#"{"seq":0,"t":1,"k":"char","text":"a"}"#).is_err(), "unknown fields are refused");
+        assert!(serde_json::from_str::<KeyIn>(r#"{"seq":0,"t":1.5,"k":"char"}"#).is_err(), "fractional time is refused");
+    }
+
+    #[test]
+    fn a_very_long_session_is_fast() {
+        let keys: Vec<KeyIn> = (0..100_000u64).map(|i| KeyIn { seq: i, t: i * 90, k: "char".into(), n: None }).collect();
+        let t0 = std::time::Instant::now();
+        let r = merkle_root(&keys, &[7u8; 32]).unwrap();
+        let ms = t0.elapsed().as_millis();
+        println!("NATIVE COMMIT: 100,000 events in {ms} ms (root {})", &hex::encode(r)[..12]);
+        // The speed bound only means something in an optimized build; debug builds (what the tests normally run) are far slower.
+        if !cfg!(debug_assertions) { assert!(ms < 3000, "took {ms} ms"); }
     }
 }
