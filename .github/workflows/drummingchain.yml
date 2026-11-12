@@ -1,0 +1,21 @@
+name: drummingchain prototype
+on:
+  push:
+    paths:
+      - 'apps/drummingchain/**'
+      - '.github/workflows/drummingchain.yml'
+  pull_request:
+    paths:
+      - 'apps/drummingchain/**'
+      - '.github/workflows/drummingchain.yml'
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deterministic practice receipt tests
+        working-directory: apps/drummingchain
+        run: node --test test/*.test.mjs
