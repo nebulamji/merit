@@ -1,4 +1,6 @@
 import { normalizeHit, deriveMetrics, localReceipt, newSecret, ROUND_MS } from './engine.mjs';
+import { makeActivityBlocks } from './blocks.mjs';
+import { practiceCoach } from './coach.mjs';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage'), canvas = $('overlay'), ctx = canvas.getContext('2d');
@@ -10,7 +12,7 @@ const ui = {
   sensitivity: $('sensitivity'), sensitivityText: $('sensitivityText'),
   level: $('level'), levelText: $('levelText'), start: $('start'), stop: $('stop'),
   cam: $('camButton'), demo: $('demo'), exp: $('export'), events: $('events'),
-  round: $('round'), evidence: $('evidence'), message: $('message'),
+  round: $('round'), appBlocks: $('appBlocks'), coachText: $('coachText'), evidence: $('evidence'), message: $('message'),
 };
 let audio = null, micStream = null, camStream = null, source = null, processor = null;
 let demoTimer = null, captureStarted = 0, audioStart = 0, durationMs = 0;
@@ -62,6 +64,8 @@ function paintStats() {
   ui.err.textContent = metrics.relative_grid_error_ms === null ? '—' : Math.round(metrics.relative_grid_error_ms) + 'ms';
   const n = Math.floor(Math.max(0, durationMs - 0.00001) / ROUND_MS);
   ui.round.textContent = String(n + 1).padStart(2, '0') + ' / ' + timeFmt(durationMs % ROUND_MS);
+  if (ui.appBlocks) ui.appBlocks.textContent = String(Math.ceil(durationMs / 5000));
+  if (ui.coachText) { const c = practiceCoach(metrics, 'rudiments'); ui.coachText.textContent = c.observation + ' ' + c.suggestion; }
   ui.clock.textContent = timeFmt(durationMs);
   const recent = [...events].slice(-6).reverse();
   ui.events.replaceChildren();
@@ -223,8 +227,9 @@ async function exportPractice() {
       hits: events, durationMs, tempoBpm: Number(ui.tempo.value),
       sessionSecret: secret, createdUtc: new Date().toISOString(),
     });
-    exportedReceipt = { receipt, private_event_log: events, local_secret: secret,
-      advisory: 'PRIVATE EXPORT. Contains full hit log + secret. Do not publish the private_event_log or local_secret. UNSIGNED; no chain transaction.' };
+    const applicationChain = await makeActivityBlocks({ hits: events, durationMs, sessionId: secret.slice(0, 32) });
+    exportedReceipt = { receipt, application_chain: applicationChain, private_event_log: events, local_secret: secret,
+      advisory: 'PRIVATE EXPORT. Contains full hit log + secret. Do not publish the private_event_log or local_secret. UNSIGNED; application blocks are local, unanchored, and not Ethereum blocks.' };
     const blob = new Blob([JSON.stringify(exportedReceipt, null, 2)], { type: 'application/json' });
     const href = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = href; a.download = 'drummingchain-practice-' + Date.now() + '.json';
