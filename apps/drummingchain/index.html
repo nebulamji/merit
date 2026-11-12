@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#07101b" />
+<title>DRUMMINGCHAIN — Practice Becomes a Record</title>
+<style>
+:root{color-scheme:dark;--ink:#dce9e8;--mute:#8c9f9e;--blue:#07101b;--panel:#101c26;--gold:#e2bd78;--mint:#73f3ca}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--ink);background:radial-gradient(ellipse at 50% -30%,#1c333d,#07101b 70%);font-variant-numeric:tabular-nums}
+button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.38;cursor:not-allowed}
+.wrap{max-width:1530px;margin:auto;padding:24px 32px 50px}
+header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff20;padding:0 0 22px;gap:18px}
+.brand{font-size:22px;letter-spacing:.2em;font-weight:850;color:#f3e8cb}.brand span{color:var(--gold)}.eyebrow{font-size:10px;letter-spacing:.25em;color:var(--mint);font-weight:750}.sub{font-size:12px;color:var(--mute);margin-top:5px;letter-spacing:.09em}
+.status{display:flex;align-items:center;gap:8px;border:1px solid #ffffff26;border-radius:100px;padding:9px 14px;font-size:11px;letter-spacing:.12em;font-weight:700;background:#0e1d27}.dot{width:8px;height:8px;border-radius:50%;background:#5e7175}.status.on .dot{background:var(--mint);box-shadow:0 0 12px #77ffe0}
+h1{font-weight:550;font-size:clamp(27px,4vw,54px);letter-spacing:-.045em;margin:24px 0 8px}.intro{color:#91a6a9;margin:0 0 25px;font-size:14px;line-height:1.6}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 355px;gap:22px}.stage{position:relative;overflow:hidden;border:1px solid #ffffff33;background:#152d32;border-radius:20px;min-height:575px;isolation:isolate}
+.stage video{position:absolute;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:0}.stage.has-camera video{opacity:1}.fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:radial-gradient(ellipse at 50% 35%,#40635d77,#112630a8 65%),linear-gradient(115deg,#20383b,#0c1824)}
+.fallback:before{content:"";width:min(65%,410px);height:210px;position:absolute;top:41%;transform:perspective(600px) rotateX(50deg);border-radius:48%;background:radial-gradient(ellipse,#7c8581,#3c4748 75%);border:25px solid #b29370;box-shadow:0 26px 55px #0009}
+.fallback strong{z-index:1;font-size:13px;letter-spacing:.22em;text-shadow:0 1px 7px black;margin-top:-205px}.fallback small{z-index:1;margin-top:8px;color:#b2c8bd}
+.stage.has-camera .fallback{display:none}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.top-left,.top-right,.bottom-left,.bottom-right{position:absolute;z-index:2}.top-left{top:22px;left:22px}.top-right{right:22px;top:22px;text-align:right}.bottom-left{left:22px;bottom:22px}.bottom-right{right:22px;bottom:22px;text-align:right}
+.label{font-size:10px;font-weight:800;letter-spacing:.18em;color:var(--mint);text-shadow:0 1px 6px #071016}.large{font-size:42px;letter-spacing:-.055em;font-weight:700;text-shadow:0 2px 12px #071016}.little{font-size:12px;color:#cfdddd;text-shadow:0 1px 6px #000}.pill{display:inline-block;background:#07191ecb;border:1px solid #85b0b562;border-radius:6px;padding:10px 13px}
+.panel{background:#0c1823df;border:1px solid #ffffff20;border-radius:18px;padding:22px;margin-bottom:17px}
+.panel h2{font-size:12px;letter-spacing:.19em;font-weight:800;color:#d2e4de;margin:0 0 18px}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:12px 0;color:#95a8a7;font-size:13px}.row strong{color:#e5eee7;font-weight:670}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kpi{background:#192833;border:1px solid #ffffff0d;border-radius:12px;padding:13px}.kpi em{display:block;color:#7f9999;font-size:10px;font-style:normal;letter-spacing:.12em}.kpi strong{display:block;font-size:28px;margin-top:5px;font-weight:600}
+input[type=range]{accent-color:var(--mint);width:100%;margin:10px 0}
+.action{border:1px solid #557d78;border-radius:9px;background:#1a3440;color:#f0fff9;font-weight:750;font-size:12px;letter-spacing:.07em;padding:12px 14px;transition:background .15s;min-height:43px}.action:hover:not(:disabled){background:#315357}
+.action.primary{background:var(--mint);border-color:var(--mint);color:#062323}.action.secondary{background:#212c36;border-color:#647f8755}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px}.full{grid-column:1 / -1}
+.events{height:118px;overflow:auto;scrollbar-color:#39545c transparent;font-size:12px;line-height:1.75}.event{display:flex;justify-content:space-between;border-bottom:1px solid #ffffff10;color:#b2c5c4}.event b{color:var(--mint);font-weight:650}
+.meter{height:4px;border-radius:5px;background:#244148;overflow:hidden;margin:15px 0 5px}.meter > div{height:100%;width:0;background:var(--mint);transition:width .08s}
+.fine{font-size:11px;line-height:1.55;color:#8ba09f}.notice{border-left:2px solid var(--gold);padding:0 0 0 12px;margin:14px 0 0}
+footer{margin-top:18px;font-size:11px;color:#738d8b;line-height:1.6}
+@media(max-width:1000px){.grid{grid-template-columns:1fr}.stage{min-height:520px}.wrap{padding:18px 14px 30px}}@media(max-width:560px){.brand{font-size:15px;letter-spacing:.13em}.sub{font-size:10px}.stage{min-height:465px}.top-left,.top-right{top:14px}.top-left,.bottom-left{left:14px}.top-right,.bottom-right{right:14px}.large{font-size:29px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header><div><div class="eyebrow">JAZZ WORLD PEACE / INSTRUMENTS</div><div class="brand">DRUMMING<span>CHAIN</span></div><div class="sub">PRACTICE → MEASUREMENT → RECEIPT → MUSIC</div></div><div id="status" class="status" role="status"><span class="dot"></span><span id="statusText">LOCAL / IDLE</span></div></header>
+<h1>The instrument is the interface.</h1>
+<p class="intro">Place your phone or laptop beside the pad. Your microphone detects strike onsets. The camera is an optional augmented-reality view. A session becomes a portable, private practice record.</p>
+<div class="grid">
+<section class="stage" id="stage" aria-label="Live practice pad visualization">
+ <video id="camera" autoplay muted playsinline aria-hidden="true"></video>
+ <div class="fallback"><strong>YOUR PRACTICE SPACE</strong><small>Enable camera to see the pad</small></div>
+ <canvas id="overlay" aria-hidden="true"></canvas>
+ <div class="top-left"><div class="pill"><div class="label">DRUMMINGCHAIN / LIVE</div><div class="little" id="inputLabel">WAITING FOR SENSOR</div></div></div>
+ <div class="top-right"><div class="pill"><div class="label">SESSION CLOCK</div><div class="large" id="clock">00:00</div></div></div>
+ <div class="bottom-left"><div class="pill"><div class="label">HIT DETECTION</div><div class="large" id="hits">000</div><div class="little">estimated strikes</div></div></div>
+ <div class="bottom-right"><div class="pill"><div class="label">TARGET TEMPO</div><div class="large"><span id="stageTempo">100</span><span style="font-size:13px"> BPM</span></div></div></div>
+</section>
+<aside>
+ <section class="panel"><h2>MEASURE / PLAY</h2>
+  <div class="kpis"><div class="kpi"><em>STROKES / MIN</em><strong id="spm">—</strong></div><div class="kpi"><em>GRID DEVIATION</em><strong id="gridError">—</strong></div></div>
+  <div class="row"><label for="tempo">Practice grid</label><strong id="tempoText">100 BPM</strong></div>
+  <input id="tempo" type="range" min="40" max="240" step="1" value="100" />
+  <div class="row"><label for="sensitivity">Mic sensitivity</label><strong id="sensitivityText">3.5×</strong></div>
+  <input id="sensitivity" type="range" min="2" max="8" step=".5" value="3.5" />
+  <div class="row"><span>Mic signal</span><strong id="levelText">OFF</strong></div><div class="meter"><div id="level"></div></div>
+  <div class="controls"><button id="start" class="action primary">START MIC</button><button id="camButton" class="action">CAMERA</button><button id="demo" class="action secondary">TRY DEMO</button><button id="stop" class="action secondary" disabled>STOP</button><button id="export" class="action full" disabled>EXPORT PRACTICE RECEIPT ↓</button></div>
+  <p class="fine notice" id="message">This build estimates attack times from sound. It cannot identify left vs. right hand, grade technique or prove a human played.</p>
+ </section>
+ <section class="panel"><h2>ROUND / EVENTS</h2><div class="row"><span>10-minute round</span><strong id="round">01 / 00:00</strong></div>
+ <div class="row"><span>Input evidence</span><strong id="evidence">NOT CAPTURED</strong></div>
+ <div class="events" id="events" aria-live="polite"><div class="event">No strikes recorded yet.</div></div>
+ </section>
+ <section class="panel"><h2>WHAT GETS SAVED</h2><p class="fine">Local timestamps, estimated strength, sensor origin, ten-minute round summaries, and a salted event-root hash. No PCM or video is uploaded. Exports are unsigned local claims until independently verified. Blockchain settlement is not enabled.</p></section>
+</aside>
+</div>
+<footer>DRUMMINGCHAIN • SQUEEKCHAIN-inspired ten-minute rounds • Merit-compatible evidence boundary • JPEG / NFT / $DRUMMINGCHAIN not issued or offered • Use headphones to prevent click bleed if playing along with audio.</footer>
+</main>
+<script type="module" src="./src/main.mjs"></script>
+</body>
+</html>
