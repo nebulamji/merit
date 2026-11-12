@@ -1,6 +1,6 @@
 # DRUMMINGCHAIN — the practice instrument is a workchain
 
-**Status:** working browser prototype, local only; mic transient estimates + optional camera AR overlay + private practice receipts. No on-chain deployment, signed certificate, independent sensor validation, ML inference, physical authentication, token, market, staking, or reward claim.
+**Status:** working browser prototype, local only; mic transient estimates + optional manually aligned camera AR overlay + five-second local application blocks + ten-minute rounds + private practice receipts + a transparent rule-based practice companion. No on-chain deployment, signed certificate, independent sensor validation, ML inference, physical authentication, token, market, staking, or reward claim.
 
 **Run:** use Node 22+: from the repository root, `cd apps/drummingchain && python3 -m http.server 8089 --bind 127.0.0.1`; open `http://127.0.0.1:8089`. For remote phones, deploy to an HTTPS origin because `getUserMedia` and AudioWorklet need a secure context. Click **START MIC**, optionally **CAMERA**, and tap on the pad in the video view to relocate the display target. Stop and export a JSON file to your machine. **TRY DEMO** emits clearly marked synthetic transients and never qualifies as evidence. Test with `node --test test/*.test.mjs`.
 
@@ -24,9 +24,9 @@ getUserMedia(audio) -> high-pass 160 Hz -> AudioWorklet 128-sample RMS/rise dete
      ↓ {time, strength estimate, source:'microphone', hand:'unknown'}
 sensor-neutral normalizeHit() -> immutable sequenced local log
      ↓
-deriveMetrics() + partitionRounds(10 minutes)
+deriveMetrics() + makeActivityBlocks(5 seconds) + partitionRounds(10 minutes)
      ↓
-salted per-event SHA-256 binary commitment + canonical receipt SHA-256
+salted per-event SHA-256 binary commitment + local application-block hash chain + canonical receipt SHA-256
      ↓
 private JSON download (raw hits + local secret + UNSIGNED_SELF_REPORTED receipt)
      ↓ NOT YET BUILT
@@ -44,7 +44,8 @@ independent validator / oracle / action authorization / chain settlement
 `drummingchain-practice/0.1`:
 - Event: `{seq, t_ms, strength:0..1, source:'microphone'|'midi'|'sensor'|'demo', hand:'L'|'R'|'unknown'}`. Source is an assertion, not guaranteed trustworthy.
 - Metrics: count, duration, observed inter-hit median/CV, phase-relative subdivision error and source caveats.
-- Application block: ten-minute bucket with start/end timestamps, event count and event sequence references. **Round** means accounting unit, not blockchain block or proof-of-work.
+- **Application block**: five-second locally chained event commitment with sequence index, event hash, previous block hash and explicit `UNANCHORED_LOCAL_CHAIN` status. Not an Ethereum block or proof of work.
+- **Round**: ten-minute accounting bucket with start/end timestamps, hit count and event sequence references. Not an Ethereum consensus interval.
 - Receipt: `events_root` from salted canonical-event leaf hashes, public aggregate metrics, `verification='UNSIGNED_SELF_REPORTED'`, chain fields null/false, `receipt_sha256`. This is *not* the Merit `merit-attestation/0.1` signed schema; it can be adapted through an explicit reviewed bridge.
 - Private export includes the local secret and raw events **for replay on the owner's device only**. **Never upload that complete private export or secret to chain or a public art gallery.**
 - For true third-party proof: independent witness devices / calibrated sensor attestations, timestamp authority, anti-replay nonce, liveness, attack resistance and a dispute path. Device self-signature alone proves key control, **not** a human played a pad.
@@ -55,7 +56,7 @@ independent validator / oracle / action authorization / chain settlement
 |---|---|---|---|
 | V0 | microphone + camera AR rings | AudioWorklet capture, local consent, event clock, ten-minute rounds, local hash | **Implemented in this folder** |
 | V0.2 | stick tip and pad geometry | Camera calibration, pose/hand/stick keypoints, video-time to audio-time clock alignment, confidence/null handling, occlusion tests | Not implemented |
-| V0.3 | drumming musician AI | Optional teacher mode with rhythm grid, human-annotated rudiments, graded feedback only after controlled validation with expert drummers | Not implemented |
+| V0.3 | drumming musician AI | Rule-based descriptive companion is active; actual AI teacher, notation-aware judgment and validated pedagogy need consent and musician-led benchmarks | Transparent companion implemented; AI model not implemented |
 | V1 | interactive notation | Live two-staff sticking exercises, reading with generated alternatives, suggestions adaptive to actual input; never silently overwrite authored notation | Not implemented |
 | V1.1 | AR/VR | WebXR in supported devices / three.js space, anchored 3D staff and rehearsal avatars; 2D fallback; per-device latency benchmark | Not implemented |
 | V1.2 | evidence | Merit's signed receipt, challenger review, selectively disclosed per-event proof, trusted time and external calibration | Not implemented |
