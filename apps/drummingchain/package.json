@@ -1,0 +1,10 @@
+{
+  "name": "@merit/drummingchain-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "description": "Local-first microphone drum practice, AR rings, 10-minute rounds and unsigned receipts"
+}
